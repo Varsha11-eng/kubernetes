@@ -69,6 +69,18 @@ func (e SMTAlignmentError) Type() string {
 	return ErrorSMTAlignment
 }
 
+// RejectionType returns the rejection type of this error. A request that is not a multiple of the CPUs
+// per core can never be aligned, while a shortage of free physical CPUs may resolve once other
+// pods release CPUs.
+// TODO: Return RejectionInfeasible when the request exceeds the physical CPUs available on an
+// otherwise empty node.
+func (e SMTAlignmentError) RejectionType() lifecycle.RejectionType {
+	if e.CausedByPhysicalCPUs {
+		return lifecycle.RejectionBlocked
+	}
+	return lifecycle.RejectionInfeasible
+}
+
 // staticPolicy is a CPU manager policy that does not change CPU
 // assignments for exclusively pinned guaranteed containers after the main
 // container process starts.
@@ -1389,6 +1401,10 @@ func (p *staticPolicy) generateCPUTopologyHints(usableCPUs cpuset.CPUSet, reusab
 	// Initialize minAffinitySize to include all NUMA Nodes.
 	minAffinitySize := len(p.numaNodes)
 
+	// Resolve once rather than per mask: the answer is a property of the
+	// topology manager policy, which does not change while we iterate.
+	scoreHints := topologymanager.HintScoresNeeded(p.affinity)
+
 	// Iterate through all combinations of numa nodes bitmask and build hints from them.
 	hints := []topologymanager.TopologyHint{}
 	bitmask.IterateBitMasks(p.numaNodes, func(mask bitmask.BitMask) {
@@ -1437,9 +1453,12 @@ func (p *staticPolicy) generateCPUTopologyHints(usableCPUs cpuset.CPUSet, reusab
 		// everything assigned across those nodes over everything allocatable
 		// across them. That is not the mean of the per-node scores once the
 		// nodes differ in size.
-		allocatable := cpusInMaskSet.Difference(p.reservedCPUs).Size()
-		free := freeCPUs.Intersection(cpusInMaskSet).Size()
-		score := topologymanager.UtilizationScore(int64(allocatable), int64(allocatable-free))
+		var score int64
+		if scoreHints {
+			allocatable := cpusInMaskSet.Difference(p.reservedCPUs).Size()
+			free := freeCPUs.Intersection(cpusInMaskSet).Size()
+			score = topologymanager.UtilizationScore(int64(allocatable), int64(allocatable-free))
+		}
 
 		// Otherwise, create a new hint from the numa node bitmask and add it to the
 		// list of hints.  We set all hint preferences to 'false' on the first

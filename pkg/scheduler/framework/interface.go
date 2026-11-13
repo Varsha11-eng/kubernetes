@@ -233,6 +233,12 @@ type Framework interface {
 	// StoreScheduleResults stores the results after we have sorted and filtered nodes.
 	StoreScheduleResults(ctx context.Context, signature fwk.PodSignature, hintedNode, chosenNode string, otherNodes SortedScoredNodes, cycleCount int64)
 
+	// IsBatchingDisabled reports whether opportunistic batching is currently disabled on the framework.
+	IsBatchingDisabled() bool
+
+	// SetBatchingDisabled disables or re-enables opportunistic batching on the framework.
+	SetBatchingDisabled(disabled bool)
+
 	// RunRawScorePlugins runs only the Score() phase of each active scoring plugin for a single node,
 	// without NormalizeScore or weighting and returns pre-NormalizeScore values.
 	RunRawScorePlugins(ctx context.Context, state fwk.CycleState, pod *v1.Pod, nodeInfo fwk.NodeInfo) ([]fwk.PluginScore, *fwk.Status)
@@ -344,4 +350,11 @@ func NewPostFilterResultWithNominatedNode(name string) *fwk.PostFilterResult {
 			NominatingMode:    fwk.ModeOverride,
 		},
 	}
+}
+
+// IsRelevantForPodResize reports whether the plugin runs for a pod with a deferred resize:
+// only plugins that implement fwk.RelevancePlugin and return true do.
+func IsRelevantForPodResize(pl fwk.Plugin) bool {
+	rp, ok := pl.(fwk.RelevancePlugin)
+	return ok && rp.IsRelevantForPodResize()
 }

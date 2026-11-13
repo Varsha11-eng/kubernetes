@@ -4948,13 +4948,13 @@
       "description": "JobSchedulingConfiguration composes the reusable workload-aware scheduling building blocks.",
       "properties": {
         "disruptionMode": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupDisruptionMode",
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupDisruptionMode",
           "description": "disruptionMode defines the mode in which the Job's pods can be disrupted. One of Single, All. This field is immutable after creation: it may not be added or removed, and the selected mode may not be changed."
         },
         "resourceClaims": {
           "description": "resourceClaims defines which ResourceClaims may be shared among Pods in the Job. Pods consume the devices allocated to a PodGroup's claim by defining a claim in its own Spec.ResourceClaims that matches the PodGroup's claim exactly. The claim must have the same name and refer to the same ResourceClaim or ResourceClaimTemplate. At most 4 claims may be set, matching the limit on the resulting PodGroup. This list is immutable after creation: entries may neither be added, removed, nor modified.",
           "items": {
-            "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupResourceClaim"
+            "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupResourceClaim"
           },
           "type": "array",
           "x-kubernetes-list-map-keys": [
@@ -4965,11 +4965,11 @@
           "x-kubernetes-patch-strategy": "merge"
         },
         "schedulingConstraints": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupSchedulingConstraints",
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingConstraints",
           "description": "schedulingConstraints defines scheduling constraints (e.g. topology) for the Job's pods. This field is immutable after creation."
         },
         "schedulingPolicy": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupSchedulingPolicy",
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingPolicy",
           "description": "schedulingPolicy defines the scheduling policy for this Job. Exactly one of Basic or Gang must be set. This field is immutable after creation: the policy may not be added or removed. The policy variant (basic/gang) is frozen by hand-written validation; only schedulingPolicy.gang.minCount may be changed."
         }
       },
@@ -5030,7 +5030,7 @@
         },
         "scheduling": {
           "$ref": "#/definitions/io.k8s.api.batch.v1.JobSchedulingConfiguration",
-          "description": "scheduling defines the Workload-aware Scheduling configuration for this Job. When set, it specifies the scheduling policy (basic or gang), topology constraints, disruption mode, and shared resource claims. When omitted, the Job defaults to the basic scheduling policy, which behaves as standard pod-by-pod scheduling. This field is alpha-level and requires the WorkloadWithJob feature gate. This field is immutable, including whether it is set at all, only policy.gang.minCount may be changed after creation."
+          "description": "scheduling defines the Workload-aware Scheduling configuration for this Job. When set, it specifies the scheduling policy (basic or gang), topology constraints, disruption mode, and shared resource claims. When omitted, the Job defaults to the basic scheduling policy, which behaves as standard pod-by-pod scheduling. This field is gated by the WorkloadWithJob feature gate.\n\nThis field is immutable, including whether it is set at all, only policy.gang.minCount may be changed after creation."
         },
         "selector": {
           "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.LabelSelector",
@@ -5200,6 +5200,10 @@
       "properties": {
         "action": {
           "description": "action specifies the action taken on a pod failure when the requirements are satisfied. Possible values are:\n\n- FailJob: indicates that the pod's job is marked as Failed and all\n  running pods are terminated.\n- FailIndex: indicates that the pod's index is marked as Failed and will\n  not be restarted.\n- Ignore: indicates that the counter towards the .backoffLimit is not\n  incremented and a replacement pod is created.\n- Count: indicates that the pod is handled in the default way - the\n  counter towards the .backoffLimit is incremented.\nAdditional values are considered to be added in the future. Clients should react to an unknown action by skipping the rule.",
+          "type": "string"
+        },
+        "name": {
+          "description": "name of the pod failure policy rule. When a rule with the FailJob action fails the Job, its name is included in the Job failure condition message. The condition reason remains PodFailurePolicy. Unnamed rules are identified by their zero-based index in the message. The name must be a non-empty DNS label of at most 63 characters, containing only lowercase alphanumeric characters or hyphens, starting and ending with an alphanumeric character, and must be unique within the Job. This field is alpha-level and is only honored by servers that enable the PodFailurePolicyName feature gate.",
           "type": "string"
         },
         "onExitCodes": {
@@ -5931,8 +5935,7 @@
         "serviceAccountName",
         "serviceAccountUID",
         "nodeName",
-        "nodeUID",
-        "stubPKCS10Request"
+        "nodeUID"
       ],
       "type": "object"
     },
@@ -6445,7 +6448,7 @@
       "type": "object"
     },
     "io.k8s.api.core.v1.Binding": {
-      "description": "Binding ties one object to another; for example, a pod is bound to a node by a scheduler.",
+      "description": "Binding assigns a pod to a node.",
       "properties": {
         "apiVersion": {
           "description": "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
@@ -6461,7 +6464,7 @@
         },
         "target": {
           "$ref": "#/definitions/io.k8s.api.core.v1.ObjectReference",
-          "description": "target is the target object that you want to bind to the standard object."
+          "description": "target is the node that you want to bind the pod to."
         }
       },
       "required": [
@@ -6742,7 +6745,7 @@
           "type": "string"
         },
         "user": {
-          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         }
@@ -7028,7 +7031,7 @@
           "type": "integer"
         },
         "defaultUser": {
-          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         },
@@ -7582,7 +7585,7 @@
           "description": "resourceFieldRef selects a resource of the container: only resources limits and requests (limits.cpu, limits.memory, requests.cpu and requests.memory) are currently supported."
         },
         "user": {
-          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         }
@@ -7601,7 +7604,7 @@
           "type": "integer"
         },
         "defaultUser": {
-          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         },
@@ -8745,7 +8748,7 @@
           "type": "string"
         },
         "user": {
-          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         }
@@ -9473,7 +9476,7 @@
       "description": "NodePodPreemptionPolicy defines the node-level policies governing preemption for pods on this node.",
       "properties": {
         "disableResizePreemption": {
-          "description": "disableResizePreemption lists the owners (e.g., autoscalers, operators, administrators) that have requested to disable scheduler and Kubelet preemption for in-place pod resize on this node. If this list is non-empty, resize-induced preemption is disabled on this node. This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate.",
+          "description": "disableResizePreemption lists the owners (e.g., autoscalers, operators, administrators) that have requested to disable scheduler and Kubelet preemption for in-place pod resize on this node. If this list is non-empty, resize-induced preemption is disabled on this node. This is a beta field and requires the InPlacePodVerticalScalingSchedulerPreemption feature gate to be enabled (enabled by default).",
           "items": {
             "type": "string"
           },
@@ -9604,7 +9607,7 @@
         },
         "podPreemptionPolicy": {
           "$ref": "#/definitions/io.k8s.api.core.v1.NodePodPreemptionPolicy",
-          "description": "podPreemptionPolicy controls the node-level preemption behaviors for pods on this node. This is an alpha field and requires enabling the InPlacePodVerticalScalingSchedulerPreemption feature gate."
+          "description": "podPreemptionPolicy controls the node-level preemption behaviors for pods on this node. This is a beta field and requires the InPlacePodVerticalScalingSchedulerPreemption feature gate to be enabled (enabled by default)."
         },
         "providerID": {
           "description": "providerID is the ID of the node assigned by the cloud provider in the format: <ProviderName>://<ProviderSpecificNodeID>",
@@ -10094,7 +10097,7 @@
         },
         "healthStatus": {
           "$ref": "#/definitions/io.k8s.api.core.v1.VolumeHealthStatus",
-          "description": "healthStatus contains the latest controller-reported health information for the volume bound to this claim."
+          "description": "healthStatus contains the latest controller-reported health information for the volume bound to this claim. This is an alpha field and requires enabling the CSIVolumeHealth feature gate."
         },
         "modifyVolumeStatus": {
           "$ref": "#/definitions/io.k8s.api.core.v1.ModifyVolumeStatus",
@@ -10508,7 +10511,7 @@
           "type": "string"
         },
         "user": {
-          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         },
@@ -11278,16 +11281,18 @@
           "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time",
           "description": "RFC 3339 date and time at which the object was acknowledged by the Kubelet. This is before the Kubelet pulled the container image(s) for the pod."
         },
-        "volumeHealth": {
-          "description": "volumeHealth contains node-reported health for each volume the pod is using. Populated by the kubelet on the pod's node.",
+        "volumeStatuses": {
+          "description": "VolumeStatuses contains the status of individual volumes used by this pod. This is an alpha field and requires enabling the CSIVolumeHealth feature gate.",
           "items": {
-            "$ref": "#/definitions/io.k8s.api.core.v1.PodVolumeHealth"
+            "$ref": "#/definitions/io.k8s.api.core.v1.PodVolumeStatus"
           },
           "type": "array",
           "x-kubernetes-list-map-keys": [
             "name"
           ],
-          "x-kubernetes-list-type": "map"
+          "x-kubernetes-list-type": "map",
+          "x-kubernetes-patch-merge-key": "name",
+          "x-kubernetes-patch-strategy": "merge"
         }
       },
       "type": "object"
@@ -11370,26 +11375,12 @@
       },
       "type": "object"
     },
-    "io.k8s.api.core.v1.PodVolumeHealth": {
-      "description": "PodVolumeHealth contains health information for a volume used by a pod, reported by the CSI node plugin via the kubelet.",
+    "io.k8s.api.core.v1.PodVolumeStatus": {
+      "description": "PodVolumeStatus represents the status of an individual volume used by a pod.",
       "properties": {
-        "healthConditions": {
-          "description": "healthConditions is the set of adverse conditions reported by the CSI node plugin for this volume on this node. At most 16 conditions may be reported.",
-          "items": {
-            "$ref": "#/definitions/io.k8s.api.core.v1.VolumeHealthCondition"
-          },
-          "type": "array",
-          "x-kubernetes-list-map-keys": [
-            "status",
-            "reason"
-          ],
-          "x-kubernetes-list-type": "map",
-          "x-kubernetes-patch-merge-key": "status",
-          "x-kubernetes-patch-strategy": "merge"
-        },
-        "lastTransitionTime": {
-          "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time",
-          "description": "lastTransitionTime is when the current set of conditions first appeared."
+        "healthStatus": {
+          "$ref": "#/definitions/io.k8s.api.core.v1.VolumeHealthStatus",
+          "description": "healthStatus contains health reported by the CSI node plugin for this volume on the pod's node. Populated by the kubelet. This is an alpha field and requires enabling the CSIVolumeHealth feature gate."
         },
         "name": {
           "description": "name matches an entry in pod.spec.volumes.",
@@ -11525,7 +11516,7 @@
           "type": "integer"
         },
         "defaultUser": {
-          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         },
@@ -12239,8 +12230,12 @@
           "description": "localhostProfile indicates a profile defined in a file on the node should be used. The profile must be preconfigured on the node to work. Must be a descending path, relative to the kubelet's configured seccomp profile location. Must be set if type is \"Localhost\". Must NOT be set for any other type.",
           "type": "string"
         },
+        "oci": {
+          "$ref": "#/definitions/io.k8s.api.core.v1.SecurityProfileOCI",
+          "description": "oci specifies a seccomp profile stored as an artifact in an OCI registry. The container runtime merges the profile with a base profile, so the effective profile permits an operation only if both permit it. Must be set if type is \"OCI\". Must NOT be set for any other type. This is an alpha field and requires enabling the SecurityProfileOCI feature gate."
+        },
         "type": {
-          "description": "type indicates which kind of seccomp profile will be applied. Valid options are:\n\nLocalhost - a profile defined in a file on the node should be used. RuntimeDefault - the container runtime default profile should be used. Unconfined - no profile should be applied.",
+          "description": "type indicates which kind of seccomp profile will be applied. Valid options are:\n\nLocalhost - a profile defined in a file on the node should be used. RuntimeDefault - the container runtime default profile should be used. Unconfined - no profile should be applied. OCI - a profile pulled from an OCI registry should be used, merged with a base profile (see oci.baseProfile). Privileged containers cannot use it, whether it is set on the container or inherited from the pod. This is an alpha value and requires enabling the SecurityProfileOCI feature gate.",
           "type": "string"
         }
       },
@@ -12252,7 +12247,8 @@
         {
           "discriminator": "type",
           "fields-to-discriminateBy": {
-            "localhostProfile": "LocalhostProfile"
+            "localhostProfile": "LocalhostProfile",
+            "oci": "OCI"
           }
         }
       ]
@@ -12422,7 +12418,7 @@
           "type": "integer"
         },
         "defaultUser": {
-          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "defaultUser is Optional: The owner UID of the created files by default. The defaultUser field is only used as a fallback when the item-level user field is unset. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         },
@@ -12500,6 +12496,48 @@
         }
       },
       "type": "object"
+    },
+    "io.k8s.api.core.v1.SecurityProfileOCI": {
+      "description": "SecurityProfileOCI references a security profile stored as an artifact in an OCI registry, with an optional base profile.",
+      "properties": {
+        "baseProfile": {
+          "$ref": "#/definitions/io.k8s.api.core.v1.SecurityProfileOCIBase",
+          "description": "baseProfile optionally specifies the base profile that the container runtime merges with the OCI profile. The effective profile permits an operation only if both permit it. When omitted, the container runtime default profile is the base; a Localhost base profile takes its place."
+        },
+        "ref": {
+          "description": "ref is the OCI reference of the profile. It must be a digest-pinned reference in canonical form, registry/repository@<algorithm>:<digest>, with the registry spelled out (for example docker.io/library/profile, not profile or docker.io/profile). Tags are rejected. The digest algorithm must be sha256, sha384, or sha512. The maximum length is 1024 characters. Pull secrets are assembled in the same way as for the container image by looking up node credentials, service account image pull secrets, and pod spec image pull secrets.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "type": "object"
+    },
+    "io.k8s.api.core.v1.SecurityProfileOCIBase": {
+      "description": "SecurityProfileOCIBase specifies the base profile of an OCI security profile.",
+      "properties": {
+        "localhostProfile": {
+          "description": "localhostProfile indicates a base profile defined in a file on the node should be used. The profile must be preconfigured on the node to work. Must be a non-empty descending path, relative to the kubelet's configured seccomp profile location, of at most 4096 characters. Must be set if type is \"Localhost\". Must NOT be set for any other type.",
+          "type": "string"
+        },
+        "type": {
+          "description": "type indicates which kind of base profile will be applied. Valid options are:\n\nLocalhost - a profile defined in a file on the node should be used. RuntimeDefault - the container runtime default profile should be used.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object",
+      "x-kubernetes-unions": [
+        {
+          "discriminator": "type",
+          "fields-to-discriminateBy": {
+            "localhostProfile": "LocalhostProfile"
+          }
+        }
+      ]
     },
     "io.k8s.api.core.v1.Service": {
       "description": "Service is a named abstraction of software service (for example, mysql) consisting of local port (for example 3306) that the proxy listens on, and the selector that determines which pods will answer requests sent through the proxy.",
@@ -12636,7 +12674,7 @@
           "type": "string"
         },
         "user": {
-          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+          "description": "user is Optional: The owner UID of the created file. If specified, the item-level user field takes precedence over defaultUser. (Beta) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
           "format": "int64",
           "type": "integer"
         }
@@ -13313,7 +13351,7 @@
       "type": "object"
     },
     "io.k8s.api.core.v1.VolumeHealthCondition": {
-      "description": "VolumeHealthCondition represents an adverse health condition reported for a volume.",
+      "description": "VolumeHealthCondition represents a health condition reported for a volume. Both pod and PVC reuse this type to report volume health in their status fields.",
       "properties": {
         "message": {
           "description": "message is a human-readable description. Maximum permitted length of a message is 1024 bytes.",
@@ -13324,7 +13362,7 @@
           "type": "string"
         },
         "status": {
-          "description": "status is the machine-parseable health category. Possible values: - \"Inaccessible\": the volume cannot be accessed. - \"DataLoss\": data loss has been detected on the volume. - \"Degraded\": the volume is functioning with reduced capability.",
+          "description": "status is the machine-parseable health category. Possible values are: - \"Unknown\": the driver reported an unknown health status, or a status Kubernetes does not recognize. The volume must not be considered healthy. - \"Inaccessible\": the volume cannot be accessed. - \"DataLoss\": data loss has been detected on the volume. - \"Degraded\": the volume is functioning with reduced capability. - \"Healthy\": the volume is healthy.\n\nThis field allows additional enum values to be added to VolumeHealthStatusType via CSI spec change. A future version of a CSI driver may emit health conditions that Kubernetes components are not aware of.\n\nA writer which does not know how to handle incoming new VolumeHealthStatusType may classify the status as unknown.\n\nA reader which does not know how to handle new VolumeHealthStatusType MUST only use it for health reporting purposes.",
           "type": "string"
         }
       },
@@ -13335,10 +13373,10 @@
       "type": "object"
     },
     "io.k8s.api.core.v1.VolumeHealthStatus": {
-      "description": "VolumeHealthStatus contains health information for a volume reported by the CSI controller plugin.",
+      "description": "VolumeHealthStatus contains health information for a volume reported by a CSI controller or node plugin.",
       "properties": {
         "healthConditions": {
-          "description": "healthConditions is the set of adverse conditions reported by the CSI controller plugin. An empty list means no adverse condition. At most 16 conditions may be reported.",
+          "description": "healthConditions is the set of health conditions reported by a CSI plugin. At most 16 conditions may be reported. An empty list means the CSI driver either does not support volume health or has not reported it yet. If the driver supports volume health and the volume is healthy, a Healthy condition is reported.",
           "items": {
             "$ref": "#/definitions/io.k8s.api.core.v1.VolumeHealthCondition"
           },
@@ -13347,13 +13385,11 @@
             "status",
             "reason"
           ],
-          "x-kubernetes-list-type": "map",
-          "x-kubernetes-patch-merge-key": "status",
-          "x-kubernetes-patch-strategy": "merge"
+          "x-kubernetes-list-type": "map"
         },
         "lastTransitionTime": {
           "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time",
-          "description": "lastTransitionTime is when the current set of conditions first appeared."
+          "description": "lastTransitionTime is when the current set of (status, reason) pairs first appeared. lastTransitionTime remains unchanged when only message associated with healthConditions change."
         }
       },
       "type": "object"
@@ -16488,7 +16524,7 @@
       "properties": {
         "allocationTimestamp": {
           "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time",
-          "description": "allocationTimestamp stores the time when the resources were allocated. This field is not guaranteed to be set, in which case that time is unknown.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gate."
+          "description": "allocationTimestamp stores the time when the resources were allocated. This field is not guaranteed to be set, in which case that time is unknown."
         },
         "devices": {
           "$ref": "#/definitions/io.k8s.api.resource.v1.DeviceAllocationResult",
@@ -16623,7 +16659,7 @@
           "type": "object"
         },
         "bindingConditions": {
-          "description": "bindingConditions defines the conditions for proceeding with binding. All of these conditions must be set in the per-device status conditions with a value of True to proceed with binding the pod to the node while scheduling the pod.\n\nThe maximum number of binding conditions is 4.\n\nThe conditions must be a valid condition type string.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingConditions defines the conditions for proceeding with binding. All of these conditions must be set in the per-device status conditions with a value of True to proceed with binding the pod to the node while scheduling the pod.\n\nThe maximum number of binding conditions is 4.\n\nThe conditions must be a valid condition type string.",
           "items": {
             "type": "string"
           },
@@ -16631,7 +16667,7 @@
           "x-kubernetes-list-type": "atomic"
         },
         "bindingFailureConditions": {
-          "description": "bindingFailureConditions defines the conditions for binding failure. They may be set in the per-device status conditions. If any is set to \"True\", a binding failure occurred.\n\nThe maximum number of binding failure conditions is 4.\n\nThe conditions must be a valid condition type string.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingFailureConditions defines the conditions for binding failure. They may be set in the per-device status conditions. If any is set to \"True\", a binding failure occurred.\n\nThe maximum number of binding failure conditions is 4.\n\nThe conditions must be a valid condition type string.",
           "items": {
             "type": "string"
           },
@@ -16639,7 +16675,7 @@
           "x-kubernetes-list-type": "atomic"
         },
         "bindsToNode": {
-          "description": "bindsToNode indicates if the usage of an allocation involving this device has to be limited to exactly the node that was chosen when allocating the claim. If set to true, the scheduler will set the ResourceClaim.Status.Allocation.NodeSelector to match the node where the allocation was made.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindsToNode indicates if the usage of an allocation involving this device has to be limited to exactly the node that was chosen when allocating the claim. If set to true, the scheduler will set the ResourceClaim.Status.Allocation.NodeSelector to match the node where the allocation was made.",
           "type": "boolean"
         },
         "capacity": {
@@ -16943,6 +16979,10 @@
           "type": "array",
           "x-kubernetes-list-type": "atomic"
         },
+        "extendedResourceCapacityRequests": {
+          "$ref": "#/definitions/io.k8s.api.resource.v1.CapacityRequirements",
+          "description": "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity."
+        },
         "extendedResourceName": {
           "description": "extendedResourceName is the extended resource name for the devices of this class. The devices of this class can be used to satisfy a pod's extended resource requests. It has the same format as the name of a pod's extended resource. It should be unique among all the device classes in a cluster. If two device classes have the same name, then the class created later is picked to satisfy a pod's extended resource requests. If two classes are created at the same time, then the name of the class lexicographically sorted first is picked.",
           "type": "string"
@@ -17060,7 +17100,7 @@
           "type": "boolean"
         },
         "bindingConditions": {
-          "description": "bindingConditions contains a copy of the BindingConditions from the corresponding ResourceSlice at the time of allocation.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingConditions contains a copy of the BindingConditions from the corresponding ResourceSlice at the time of allocation.",
           "items": {
             "type": "string"
           },
@@ -17068,7 +17108,7 @@
           "x-kubernetes-list-type": "atomic"
         },
         "bindingFailureConditions": {
-          "description": "bindingFailureConditions contains a copy of the BindingFailureConditions from the corresponding ResourceSlice at the time of allocation.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingFailureConditions contains a copy of the BindingFailureConditions from the corresponding ResourceSlice at the time of allocation.",
           "items": {
             "type": "string"
           },
@@ -17328,6 +17368,10 @@
     "io.k8s.api.resource.v1.DeviceTaintSelector": {
       "description": "DeviceTaintSelector defines which device(s) a DeviceTaintRule applies to. The empty selector matches all devices. Without a selector, no devices are matched.",
       "properties": {
+        "all": {
+          "description": "all explicitly selects every device from every driver in the cluster when set to true. It must not be combined with driver, pool, or device: those must all be unset when all is true.\n\nLeaving driver, pool, and device all unset also selects every device, for historical reasons, but doing so without setting all is deprecated and may be rejected in a future release. Set all explicitly instead.",
+          "type": "boolean"
+        },
         "device": {
           "description": "device represents the name of the device. If device is set, only devices with that name are selected. This field corresponds to slice.spec.devices[].name.\n\nSetting also driver and pool may be required to avoid ambiguity, but is not required.",
           "type": "string"
@@ -18020,6 +18064,10 @@
     "io.k8s.api.resource.v1alpha3.DeviceTaintSelector": {
       "description": "DeviceTaintSelector defines which device(s) a DeviceTaintRule applies to. The empty selector matches all devices. Without a selector, no devices are matched.",
       "properties": {
+        "all": {
+          "description": "all explicitly selects every device from every driver in the cluster when set to true. It must not be combined with driver, pool, or device: those must all be unset when all is true.\n\nLeaving driver, pool, and device all unset also selects every device, for historical reasons, but doing so without setting all is deprecated and may be rejected in a future release. Set all explicitly instead.",
+          "type": "boolean"
+        },
         "device": {
           "description": "device is the name of the device. If device is set, only devices with that name are selected. This field corresponds to slice.spec.devices[].name.\n\nSetting also driver and pool may be required to avoid ambiguity, but is not required.",
           "type": "string"
@@ -18374,7 +18422,7 @@
       "properties": {
         "allocationTimestamp": {
           "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time",
-          "description": "allocationTimestamp stores the time when the resources were allocated. This field is not guaranteed to be set, in which case that time is unknown.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gate."
+          "description": "allocationTimestamp stores the time when the resources were allocated. This field is not guaranteed to be set, in which case that time is unknown."
         },
         "devices": {
           "$ref": "#/definitions/io.k8s.api.resource.v1beta2.DeviceAllocationResult",
@@ -18509,7 +18557,7 @@
           "type": "object"
         },
         "bindingConditions": {
-          "description": "bindingConditions defines the conditions for proceeding with binding. All of these conditions must be set in the per-device status conditions with a value of True to proceed with binding the pod to the node while scheduling the pod.\n\nThe maximum number of binding conditions is 4.\n\nThe conditions must be a valid condition type string.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingConditions defines the conditions for proceeding with binding. All of these conditions must be set in the per-device status conditions with a value of True to proceed with binding the pod to the node while scheduling the pod.\n\nThe maximum number of binding conditions is 4.\n\nThe conditions must be a valid condition type string.",
           "items": {
             "type": "string"
           },
@@ -18517,7 +18565,7 @@
           "x-kubernetes-list-type": "atomic"
         },
         "bindingFailureConditions": {
-          "description": "bindingFailureConditions defines the conditions for binding failure. They may be set in the per-device status conditions. If any is set to \"True\", a binding failure occurred.\n\nThe maximum number of binding failure conditions is 4.\n\nThe conditions must be a valid condition type string.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingFailureConditions defines the conditions for binding failure. They may be set in the per-device status conditions. If any is set to \"True\", a binding failure occurred.\n\nThe maximum number of binding failure conditions is 4.\n\nThe conditions must be a valid condition type string.",
           "items": {
             "type": "string"
           },
@@ -18525,7 +18573,7 @@
           "x-kubernetes-list-type": "atomic"
         },
         "bindsToNode": {
-          "description": "bindsToNode indicates if the usage of an allocation involving this device has to be limited to exactly the node that was chosen when allocating the claim. If set to true, the scheduler will set the ResourceClaim.Status.Allocation.NodeSelector to match the node where the allocation was made.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindsToNode indicates if the usage of an allocation involving this device has to be limited to exactly the node that was chosen when allocating the claim. If set to true, the scheduler will set the ResourceClaim.Status.Allocation.NodeSelector to match the node where the allocation was made.",
           "type": "boolean"
         },
         "capacity": {
@@ -18829,6 +18877,10 @@
           "type": "array",
           "x-kubernetes-list-type": "atomic"
         },
+        "extendedResourceCapacityRequests": {
+          "$ref": "#/definitions/io.k8s.api.resource.v1beta2.CapacityRequirements",
+          "description": "extendedResourceCapacityRequests defines the fixed capacity amounts that the scheduler requests on every ResourceClaim it synthesizes to satisfy the extended resource of this class.\n\nThe value is copied, unmodified, onto the capacity of each device request synthesized for this class, so it has the same semantics as DeviceRequest.capacity: it applies to each device allocation. A pod requesting more than one device through the extended resource gets that capacity once per device, not once per pod.\n\nThe devices selected by this class must advertise the referenced capacities. Otherwise the extended resource requests cannot be satisfied, the same way as with a selector that matches no devices.\n\nThis is an alpha field and requires enabling the DRAExtendedResourceCapacity feature gate, which depends on DRAConsumableCapacity."
+        },
         "extendedResourceName": {
           "description": "extendedResourceName is the extended resource name for the devices of this class. The devices of this class can be used to satisfy a pod's extended resource requests. It has the same format as the name of a pod's extended resource. It should be unique among all the device classes in a cluster. If two device classes have the same name, then the class created later is picked to satisfy a pod's extended resource requests. If two classes are created at the same time, then the name of the class lexicographically sorted first is picked.",
           "type": "string"
@@ -18946,7 +18998,7 @@
           "type": "boolean"
         },
         "bindingConditions": {
-          "description": "bindingConditions contains a copy of the BindingConditions from the corresponding ResourceSlice at the time of allocation.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingConditions contains a copy of the BindingConditions from the corresponding ResourceSlice at the time of allocation.",
           "items": {
             "type": "string"
           },
@@ -18954,7 +19006,7 @@
           "x-kubernetes-list-type": "atomic"
         },
         "bindingFailureConditions": {
-          "description": "bindingFailureConditions contains a copy of the BindingFailureConditions from the corresponding ResourceSlice at the time of allocation.\n\nThis is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus feature gates.",
+          "description": "bindingFailureConditions contains a copy of the BindingFailureConditions from the corresponding ResourceSlice at the time of allocation.",
           "items": {
             "type": "string"
           },
@@ -19214,6 +19266,10 @@
     "io.k8s.api.resource.v1beta2.DeviceTaintSelector": {
       "description": "DeviceTaintSelector defines which device(s) a DeviceTaintRule applies to. The empty selector matches all devices. Without a selector, no devices are matched.",
       "properties": {
+        "all": {
+          "description": "all explicitly selects every device from every driver in the cluster when set to true. It must not be combined with driver, pool, or device: those must all be unset when all is true.\n\nLeaving driver, pool, and device all unset also selects every device, for historical reasons, but doing so without setting all is deprecated and may be rejected in a future release. Set all explicitly instead.",
+          "type": "boolean"
+        },
         "device": {
           "description": "device is the device name. If device is set, only devices with that name are selected. This field corresponds to slice.spec.devices[].name.\n\nSetting also driver and pool may be required to avoid ambiguity, but is not required.",
           "type": "string"
@@ -19847,6 +19903,121 @@
         }
       ]
     },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupAllDisruptionMode": {
+      "description": "WorkloadPodGroupAllDisruptionMode indicates that all pods in the group must be disrupted together.",
+      "type": "object"
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupBasicSchedulingPolicy": {
+      "description": "WorkloadPodGroupBasicSchedulingPolicy indicates standard Kubernetes scheduling behavior.",
+      "type": "object"
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupDisruptionMode": {
+      "description": "WorkloadPodGroupDisruptionMode defines how individual pods within a group can be disrupted. Exactly one mode must be set.",
+      "properties": {
+        "all": {
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupAllDisruptionMode",
+          "description": "all specifies that all pods in the group must be disrupted together."
+        },
+        "single": {
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupSingleDisruptionMode",
+          "description": "single specifies that pods can be disrupted independently from each other."
+        }
+      },
+      "type": "object",
+      "x-kubernetes-unions": [
+        {
+          "fields-to-discriminateBy": {
+            "all": "All",
+            "single": "Single"
+          }
+        }
+      ]
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupGangSchedulingPolicy": {
+      "description": "WorkloadPodGroupGangSchedulingPolicy defines the parameters for gang (all-or-nothing) scheduling.",
+      "properties": {
+        "minCount": {
+          "description": "minCount is the minimum number of pods that must be scheduled at the same time for the scheduler to admit the entire group. This field is optional. If it is not specified, the controller should inject a context-specific sane default (e.g., parallelism for a Job). If set, it must be a positive integer.",
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupResourceClaim": {
+      "description": "WorkloadPodGroupResourceClaim references a dynamic resource claim that is shared across pods in the group.",
+      "properties": {
+        "name": {
+          "description": "name uniquely identifies this resource claim inside the group. This field is required. It must be a DNS_LABEL.",
+          "type": "string"
+        },
+        "resourceClaimName": {
+          "description": "resourceClaimName is the name of a ResourceClaim object in the same namespace. This field is optional. If it is not specified, no resource claim is used. If set, it must be a DNS subdomain.",
+          "type": "string"
+        },
+        "resourceClaimTemplateName": {
+          "description": "resourceClaimTemplateName is the name of a ResourceClaimTemplate object in the same namespace. This field is optional. If it is not specified, no resource claim template is used. If set, it must be a DNS subdomain.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingConstraints": {
+      "description": "WorkloadPodGroupSchedulingConstraints defines leaf-level scheduling constraints, such as topology.",
+      "properties": {
+        "topology": {
+          "description": "topology specifies desired topological placements for all pods within the pod group. If unset, no topology placement is requested.",
+          "items": {
+            "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadTopologyConstraint"
+          },
+          "type": "array",
+          "x-kubernetes-list-type": "atomic"
+        }
+      },
+      "type": "object"
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupSchedulingPolicy": {
+      "description": "WorkloadPodGroupSchedulingPolicy defines the scheduling policy for a group of pods managed by a workload controller. Exactly one policy must be set.",
+      "properties": {
+        "basic": {
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupBasicSchedulingPolicy",
+          "description": "basic specifies that standard, pod-by-pod Kubernetes scheduling behavior should be used."
+        },
+        "gang": {
+          "$ref": "#/definitions/io.k8s.api.scheduling.v1.WorkloadPodGroupGangSchedulingPolicy",
+          "description": "gang specifies all-or-nothing scheduling semantics."
+        }
+      },
+      "type": "object",
+      "x-kubernetes-unions": [
+        {
+          "fields-to-discriminateBy": {
+            "basic": "Basic",
+            "gang": "Gang"
+          }
+        }
+      ]
+    },
+    "io.k8s.api.scheduling.v1.WorkloadPodGroupSingleDisruptionMode": {
+      "description": "WorkloadPodGroupSingleDisruptionMode indicates that individual pods can be disrupted independently.",
+      "type": "object"
+    },
+    "io.k8s.api.scheduling.v1.WorkloadTopologyConstraint": {
+      "description": "WorkloadTopologyConstraint defines a topology constraint for a group of pods managed by a workload controller.",
+      "properties": {
+        "key": {
+          "description": "key specifies the key of the node label representing the topology domain. All pods within the PodGroup (or CompositePodGroup) must be colocated within the same domain instance. Different groups can land on different domain instances even if they derive from the same template. Nodes where this label is missing or has an empty value do not belong to any domain instance, so pods within the PodGroup/CompositePodGroup cannot be scheduled onto them. Examples: \"topology.kubernetes.io/rack\"",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
     "io.k8s.api.scheduling.v1alpha3.AllCompositeDisruptionMode": {
       "description": "AllCompositeDisruptionMode means that children of a CompositePodGroup can only be disrupted or preempted together.",
       "type": "object"
@@ -20018,7 +20189,7 @@
           "type": "string"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable.",
           "type": "string"
         },
         "priority": {
@@ -20102,16 +20273,16 @@
           "x-kubernetes-list-type": "map"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable.",
           "type": "string"
         },
         "priority": {
-          "description": "priority is the value of priority of composite pod groups created from this template. Various system components use this field to find the priority of the composite pod group. When Priority Admission Controller is enabled, it prevents users from setting this field. The admission controller populates this field from PriorityClassName. The higher the value, the higher the priority. This field is immutable.",
+          "description": "priority is the value of priority of composite pod groups created from this template. Various system components use this field to find the priority of the composite pod group. The higher the value, the higher the priority. This field is immutable.",
           "format": "int32",
           "type": "integer"
         },
         "priorityClassName": {
-          "description": "priorityClassName indicates the priority that should be considered when scheduling a composite pod group created from this template. If no priority class is specified, admission control can set this to the global default priority class if it exists. Otherwise, composite pod groups created from this template will have the priority set to zero. This field is immutable.",
+          "description": "priorityClassName indicates the priority that should be considered when scheduling a composite pod group created from this template. This field is immutable.",
           "type": "string"
         },
         "schedulingConstraints": {
@@ -20322,7 +20493,7 @@
           "type": "string"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable.",
           "type": "string"
         },
         "priority": {
@@ -20331,7 +20502,7 @@
           "type": "integer"
         },
         "priorityClassName": {
-          "description": "priorityClassName defines the priority that should be considered when scheduling this pod group. Controllers are expected to fill this field by copying it from a PodGroupTemplate. Otherwise, it is validated and resolved similarly to the PriorityClassName on PodGroupTemplate (i.e. if no priority class is specified, admission control can set this to the global default priority class if it exists. Otherwise, the pod group's priority will be zero). This field is immutable.",
+          "description": "priorityClassName defines the priority that should be considered when scheduling this pod group. Controllers are expected to fill this field by copying it from a PodGroupTemplate. Otherwise, it is validated and resolved similarly to the PriorityClassName in Pods (i.e. if no priority class is specified, admission control can set this to the global default priority class if it exists. Otherwise, the pod group's priority will be zero). This field is immutable.",
           "type": "string"
         },
         "resourceClaims": {
@@ -20409,7 +20580,7 @@
           "type": "string"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable.",
           "type": "string"
         },
         "priority": {
@@ -20558,108 +20729,6 @@
           "version": "v1alpha3"
         }
       ]
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupAllDisruptionMode": {
-      "description": "WorkloadPodGroupAllDisruptionMode indicates that all pods in the group must be disrupted together.",
-      "type": "object"
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupBasicSchedulingPolicy": {
-      "description": "WorkloadPodGroupBasicSchedulingPolicy indicates standard Kubernetes scheduling behavior.",
-      "type": "object"
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupDisruptionMode": {
-      "description": "WorkloadPodGroupDisruptionMode defines how individual pods within a group can be disrupted. Exactly one mode must be set.",
-      "properties": {
-        "all": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupAllDisruptionMode",
-          "description": "all specifies that all pods in the group must be disrupted together."
-        },
-        "single": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupSingleDisruptionMode",
-          "description": "single specifies that pods can be disrupted independently from each other."
-        }
-      },
-      "type": "object",
-      "x-kubernetes-unions": [
-        {
-          "fields-to-discriminateBy": {
-            "all": "All",
-            "single": "Single"
-          }
-        }
-      ]
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupGangSchedulingPolicy": {
-      "description": "WorkloadPodGroupGangSchedulingPolicy defines the parameters for gang (all-or-nothing) scheduling.",
-      "properties": {
-        "minCount": {
-          "description": "minCount is the minimum number of pods that must be scheduled at the same time for the scheduler to admit the entire group. This field is optional. If it is not specified, the controller should inject a context-specific sane default (e.g., parallelism for a Job). If set, it must be a positive integer.",
-          "format": "int32",
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupResourceClaim": {
-      "description": "WorkloadPodGroupResourceClaim references a dynamic resource claim that is shared across pods in the group.",
-      "properties": {
-        "name": {
-          "description": "name uniquely identifies this resource claim inside the group. This field is required. It must be a DNS_LABEL.",
-          "type": "string"
-        },
-        "resourceClaimName": {
-          "description": "resourceClaimName is the name of a ResourceClaim object in the same namespace. This field is optional. If it is not specified, no resource claim is used. If set, it must be a DNS subdomain.",
-          "type": "string"
-        },
-        "resourceClaimTemplateName": {
-          "description": "resourceClaimTemplateName is the name of a ResourceClaimTemplate object in the same namespace. This field is optional. If it is not specified, no resource claim template is used. If set, it must be a DNS subdomain.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "type": "object"
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupSchedulingConstraints": {
-      "description": "WorkloadPodGroupSchedulingConstraints defines leaf-level scheduling constraints, such as topology.",
-      "properties": {
-        "topology": {
-          "description": "topology specifies desired topological placements for all pods within the pod group. If unset, no topology placement is requested.",
-          "items": {
-            "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.TopologyConstraint"
-          },
-          "type": "array",
-          "x-kubernetes-list-type": "atomic"
-        }
-      },
-      "type": "object"
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupSchedulingPolicy": {
-      "description": "WorkloadPodGroupSchedulingPolicy defines the scheduling policy for a group of pods managed by a workload controller. Exactly one policy must be set.",
-      "properties": {
-        "basic": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupBasicSchedulingPolicy",
-          "description": "basic specifies that standard, pod-by-pod Kubernetes scheduling behavior should be used."
-        },
-        "gang": {
-          "$ref": "#/definitions/io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupGangSchedulingPolicy",
-          "description": "gang specifies all-or-nothing scheduling semantics."
-        }
-      },
-      "type": "object",
-      "x-kubernetes-unions": [
-        {
-          "fields-to-discriminateBy": {
-            "basic": "Basic",
-            "gang": "Gang"
-          }
-        }
-      ]
-    },
-    "io.k8s.api.scheduling.v1alpha3.WorkloadPodGroupSingleDisruptionMode": {
-      "description": "WorkloadPodGroupSingleDisruptionMode indicates that individual pods can be disrupted independently.",
-      "type": "object"
     },
     "io.k8s.api.scheduling.v1alpha3.WorkloadReference": {
       "description": "WorkloadReference references the Workload object together with the template that was used to create a particular PodGroup.",
@@ -20882,7 +20951,7 @@
           "type": "string"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable.",
           "type": "string"
         },
         "priority": {
@@ -20966,16 +21035,16 @@
           "x-kubernetes-list-type": "map"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable.",
           "type": "string"
         },
         "priority": {
-          "description": "priority is the value of priority of composite pod groups created from this template. Various system components use this field to find the priority of the composite pod group. When Priority Admission Controller is enabled, it prevents users from setting this field. The admission controller populates this field from PriorityClassName. The higher the value, the higher the priority. This field is immutable.",
+          "description": "priority is the value of priority of composite pod groups created from this template. Various system components use this field to find the priority of the composite pod group. The higher the value, the higher the priority. This field is immutable.",
           "format": "int32",
           "type": "integer"
         },
         "priorityClassName": {
-          "description": "priorityClassName indicates the priority that should be considered when scheduling a composite pod group created from this template. If no priority class is specified, admission control can set this to the global default priority class if it exists. Otherwise, composite pod groups created from this template will have the priority set to zero. This field is immutable.",
+          "description": "priorityClassName indicates the priority that should be considered when scheduling a composite pod group created from this template. This field is immutable.",
           "type": "string"
         },
         "schedulingConstraints": {
@@ -21186,7 +21255,7 @@
           "type": "string"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. Defaults to PreemptLowerPriority if unset. When Priority Admission Controller is enabled, it populates this field from PriorityClassName, and defaults to PreemptLowerPriority if value is unset in PriorityClass. This field is immutable.",
           "type": "string"
         },
         "priority": {
@@ -21195,7 +21264,7 @@
           "type": "integer"
         },
         "priorityClassName": {
-          "description": "priorityClassName defines the priority that should be considered when scheduling this pod group. Controllers are expected to fill this field by copying it from a PodGroupTemplate. Otherwise, it is validated and resolved similarly to the PriorityClassName on PodGroupTemplate (i.e. if no priority class is specified, admission control can set this to the global default priority class if it exists. Otherwise, the pod group's priority will be zero). This field is immutable.",
+          "description": "priorityClassName defines the priority that should be considered when scheduling this pod group. Controllers are expected to fill this field by copying it from a PodGroupTemplate. Otherwise, it is validated and resolved similarly to the PriorityClassName in Pods (i.e. if no priority class is specified, admission control can set this to the global default priority class if it exists. Otherwise, the pod group's priority will be zero). This field is immutable.",
           "type": "string"
         },
         "resourceClaims": {
@@ -21273,7 +21342,7 @@
           "type": "string"
         },
         "preemptionPolicy": {
-          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable. This field is available only when the PodGroupPreemptionPolicy feature gate is enabled.",
+          "description": "preemptionPolicy is the Policy for preempting pods/podgroups with lower priority. One of Never, PreemptLowerPriority. This field is immutable.",
           "type": "string"
         },
         "priority": {
@@ -21717,7 +21786,7 @@
       "description": "CSINodeStatus contains health and status information for storage on a node.",
       "properties": {
         "storageHealth": {
-          "description": "storageHealth contains backend health reports for CSI drivers registered on the node.",
+          "description": "storageHealth contains backend health reports for CSI drivers registered on the node. This is an alpha field and requires enabling the CSIVolumeHealth feature gate.",
           "items": {
             "$ref": "#/definitions/io.k8s.api.storage.v1.StorageHealth"
           },
@@ -21917,7 +21986,7 @@
       "description": "StorageHealth contains storage backend health reported by a CSI driver on a node.",
       "properties": {
         "healthConditions": {
-          "description": "healthConditions are the adverse storage backend conditions reported by the CSI driver. At most 16 conditions may be reported.",
+          "description": "healthConditions are the storage backend conditions reported by the CSI driver. At most 16 conditions may be reported. An empty list means the CSI driver either does not support storage health or has not reported it yet. If the driver supports storage health and its storage backend is healthy, the kubelet reports a StorageHealthy condition.",
           "items": {
             "$ref": "#/definitions/io.k8s.api.storage.v1.StorageHealthCondition"
           },
@@ -21935,7 +22004,7 @@
       "type": "object"
     },
     "io.k8s.api.storage.v1.StorageHealthCondition": {
-      "description": "StorageHealthCondition represents an adverse health condition reported by a CSI driver for its storage backend on a node.",
+      "description": "StorageHealthCondition represents a health condition reported by a CSI driver for its storage backend on a node.",
       "properties": {
         "accessMode": {
           "description": "accessMode is the access mode affected. Nil means all access modes are affected.",
@@ -21943,7 +22012,7 @@
         },
         "lastTransitionTime": {
           "$ref": "#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time",
-          "description": "lastTransitionTime is when this condition first appeared at its current state."
+          "description": "lastTransitionTime is when this condition first appeared at its current state. lastTransitionTime remains unchanged when only the message changes."
         },
         "message": {
           "description": "message is a human-readable description. Maximum permitted length of a message is 1024 bytes.",
@@ -21954,7 +22023,7 @@
           "type": "string"
         },
         "status": {
-          "description": "status is the health status category. One of \"StorageUnreachable\", \"StorageDegraded\".",
+          "description": "status is the health status category. Possible values are: - \"StorageHealthUnknown\": the driver reported an unknown health status, or a status Kubernetes does not recognize; the backend must not be considered healthy. - \"StorageUnreachable\": the storage backend is unreachable. - \"StorageDegraded\": the storage backend is functioning with reduced capability. - \"StorageHealthy\": the storage backend is healthy as seen from this node.\n\nAdditional values may be introduced as the CSI specification evolves. Writers that do not recognize a status may classify it as StorageHealthUnknown. Readers that do not recognize a status must use it only for health reporting and observability.",
           "type": "string"
         },
         "volumeMode": {
@@ -23154,7 +23223,7 @@
       "type": "object"
     },
     "io.k8s.apimachinery.pkg.api.resource.Quantity": {
-      "description": "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n- `<quantity>`: `<signedNumber><suffix>`\n\n- `<digit>`: `0 | 1 | ... | 9`\n\n- `<digits>`: `<digit> | <digit><digits>`\n\n- `<number>`: `<digits> | <digits>.<digits> | <digits>. | .<digits>`\n\n- `<sign>`: `\"+\" | \"-\"`\n\n- `<signedNumber>`: `<number> | <sign><number>`\n\n- `<signedDigits>`: `<digits> | <sign><digits>`\n\n- `<suffix>`: `<binarySI> | <decimalExponent> | <decimalSI>`\n\n- `<binarySI>`: `Ki | Mi | Gi | Ti | Pi | Ei`\n\n- `<decimalSI>`: `n | u | m | \"\" | k | M | G | T | P | E`\n\n- `<decimalExponent>`: `\"e\" <signedDigits> | \"E\" <signedDigits>`\n\nNote that `<suffix>` may be empty, from the `\"\"` case in `<decimalSI>`. For `<binarySI>`, 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization. See http://physics.nist.gov/cuu/Units/binary.html.\n\nA decimal quantity is not capped at 2^63-1 in magnitude, and no quantity is limited to three decimal places: \"18446744073709551616\" keeps its value, and \"1.2345\" keeps its precision (String reports it as \"1234500u\"). Parsing does cap a binarySI quantity, silently, at 2^63-1: \"8Ei\" parses as 2^63-1. Parsing keeps at most 29 significant digits, enough for any int64 value at nano precision, and rounds any precision beyond this away from zero. Parsing also preserves a value only down to nano, rounding a finer non-zero value away from zero, so \"0.9n\" becomes \"1n\". The int64 accessors round and may overflow on top of that: see Value, MilliValue and ScaledValue.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost\n\n- No fractional digits will be emitted\n\n- The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\"\n\n- 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.",
+      "description": "Quantity is a fixed-point representation of a number. It provides convenient marshaling/unmarshaling in JSON and YAML, in addition to String() and AsInt64() accessors.\n\nThe serialization format is:\n\n- `<quantity>`: `<signedNumber><suffix>`\n\n- `<digit>`: `0 | 1 | ... | 9`\n\n- `<digits>`: `<digit> | <digit><digits>`\n\n- `<number>`: `<digits> | <digits>.<digits> | <digits>. | .<digits>`\n\n- `<sign>`: `\"+\" | \"-\"`\n\n- `<signedNumber>`: `<number> | <sign><number>`\n\n- `<signedDigits>`: `<digits> | <sign><digits>`\n\n- `<suffix>`: `<binarySI> | <decimalExponent> | <decimalSI>`\n\n- `<binarySI>`: `Ki | Mi | Gi | Ti | Pi | Ei`\n\n- `<decimalSI>`: `n | u | m | \"\" | k | M | G | T | P | E`\n\n- `<decimalExponent>`: `\"e\" <signedDigits> | \"E\" <signedDigits>`\n\nNote that `<suffix>` may be empty, from the `\"\"` case in `<decimalSI>`. For `<binarySI>`, 1024 = 1Ki but 1000 = 1k; I didn't choose the capitalization. See http://physics.nist.gov/cuu/Units/binary.html.\n\nA decimal quantity is not capped at 2^63-1 in magnitude, and no quantity is limited to three decimal places: \"18446744073709551616\" keeps its value, and \"1.2345\" keeps its precision (String reports it as \"1234500u\"). Parsing does cap a binarySI quantity, silently, at 2^63-1: \"8Ei\" parses as 2^63-1. Parsing keeps at most 29 significant digits, enough for any int64 value at nano precision, and rounds any precision beyond this away from zero. Parsing also preserves a value only down to nano, rounding a finer non-zero value away from zero, so \"0.9n\" becomes \"1n\". Parsing saturates the exponent to [-2147483647, 2147483647] after accounting for any digits after the decimal point, so \"0.01e2147483649\" keeps its value but \"1e4294967297\" parses as 1e2147483647. The int64 accessors round and may overflow on top of that: see Value, MilliValue and ScaledValue.\n\nWhen a Quantity is parsed from a string, it will remember the type of suffix it had, and will use the same type again when it is serialized.\n\nBefore serializing, Quantity will be put in \"canonical form\". This means that Exponent/suffix will be adjusted up or down (with a corresponding increase or decrease in Mantissa) such that:\n\n- No precision is lost\n\n- No fractional digits will be emitted\n\n- The exponent (or suffix) is as large as possible.\n\nThe sign will be omitted unless the number is negative.\n\nExamples:\n\n- 1.5 will be serialized as \"1500m\"\n\n- 1.5Gi will be serialized as \"1536Mi\"\n\nNote that the quantity will NEVER be internally represented by a floating point number. That is the whole point of this exercise.\n\nNon-canonical values will still parse as long as they are well formed, but will be re-emitted in their canonical form. (So always use canonical form, or don't diff.)\n\nThis format is intended to make it difficult to use these numbers without writing some sort of special handling code in the hopes that that will cause implementors to also use a fixed point implementation.",
       "type": "string"
     },
     "io.k8s.apimachinery.pkg.apis.meta.v1.APIGroup": {
@@ -29366,6 +29435,200 @@
         "x-kubernetes-group-version-kind": {
           "group": "",
           "kind": "Binding",
+          "version": "v1"
+        }
+      }
+    },
+    "/api/v1/namespaces/{namespace}/pods/{name}/dynamic": {
+      "get": {
+        "consumes": [
+          "*/*"
+        ],
+        "description": "read dynamic of the specified Pod",
+        "operationId": "readCoreV1NamespacedPodDynamic",
+        "produces": [
+          "application/json",
+          "application/yaml",
+          "application/vnd.kubernetes.protobuf",
+          "application/cbor"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/io.k8s.api.core.v1.Pod"
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "core_v1"
+        ],
+        "x-kubernetes-action": "get",
+        "x-kubernetes-group-version-kind": {
+          "group": "",
+          "kind": "Pod",
+          "version": "v1"
+        }
+      },
+      "parameters": [
+        {
+          "description": "name of the Pod",
+          "in": "path",
+          "name": "name",
+          "required": true,
+          "type": "string",
+          "uniqueItems": true
+        },
+        {
+          "$ref": "#/parameters/namespace-vgWSWtn3"
+        },
+        {
+          "$ref": "#/parameters/pretty-tJGM1-ng"
+        }
+      ],
+      "patch": {
+        "consumes": [
+          "application/json-patch+json",
+          "application/merge-patch+json",
+          "application/strategic-merge-patch+json",
+          "application/apply-patch+yaml",
+          "application/apply-patch+cbor"
+        ],
+        "description": "partially update dynamic of the specified Pod",
+        "operationId": "patchCoreV1NamespacedPodDynamic",
+        "parameters": [
+          {
+            "$ref": "#/parameters/body-78PwaGsr"
+          },
+          {
+            "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed",
+            "in": "query",
+            "name": "dryRun",
+            "type": "string",
+            "uniqueItems": true
+          },
+          {
+            "$ref": "#/parameters/fieldManager-7c6nTn1T"
+          },
+          {
+            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
+            "in": "query",
+            "name": "fieldValidation",
+            "type": "string",
+            "uniqueItems": true
+          },
+          {
+            "$ref": "#/parameters/force-tOGGb0Yi"
+          }
+        ],
+        "produces": [
+          "application/json",
+          "application/yaml",
+          "application/vnd.kubernetes.protobuf",
+          "application/cbor"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/io.k8s.api.core.v1.Pod"
+            }
+          },
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/io.k8s.api.core.v1.Pod"
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "core_v1"
+        ],
+        "x-kubernetes-action": "patch",
+        "x-kubernetes-group-version-kind": {
+          "group": "",
+          "kind": "Pod",
+          "version": "v1"
+        }
+      },
+      "put": {
+        "consumes": [
+          "*/*"
+        ],
+        "description": "replace dynamic of the specified Pod",
+        "operationId": "replaceCoreV1NamespacedPodDynamic",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/io.k8s.api.core.v1.Pod"
+            }
+          },
+          {
+            "description": "When present, indicates that modifications should not be persisted. An invalid or unrecognized dryRun directive will result in an error response and no further processing of the request. Valid values are: - All: all dry run stages will be processed",
+            "in": "query",
+            "name": "dryRun",
+            "type": "string",
+            "uniqueItems": true
+          },
+          {
+            "$ref": "#/parameters/fieldManager-Qy4HdaTW"
+          },
+          {
+            "description": "fieldValidation instructs the server on how to handle objects in the request (POST/PUT/PATCH) containing unknown or duplicate fields. Valid values are: - Ignore: This will ignore any unknown fields that are silently dropped from the object, and will ignore all but the last duplicate field that the decoder encounters. This is the default behavior prior to v1.23. - Warn: This will send a warning via the standard warning response header for each unknown field that is dropped from the object, and for each duplicate field that is encountered. The request will still succeed if there are no other errors, and will only persist the last of any duplicate fields. This is the default in v1.23+ - Strict: This will fail the request with a BadRequest error if any unknown fields would be dropped from the object, or if any duplicate fields are present. The error returned from the server will contain all unknown and duplicate fields encountered.",
+            "in": "query",
+            "name": "fieldValidation",
+            "type": "string",
+            "uniqueItems": true
+          }
+        ],
+        "produces": [
+          "application/json",
+          "application/yaml",
+          "application/vnd.kubernetes.protobuf",
+          "application/cbor"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/io.k8s.api.core.v1.Pod"
+            }
+          },
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/io.k8s.api.core.v1.Pod"
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        },
+        "schemes": [
+          "https"
+        ],
+        "tags": [
+          "core_v1"
+        ],
+        "x-kubernetes-action": "put",
+        "x-kubernetes-group-version-kind": {
+          "group": "",
+          "kind": "Pod",
           "version": "v1"
         }
       }

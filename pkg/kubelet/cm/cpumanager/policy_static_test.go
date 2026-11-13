@@ -495,7 +495,7 @@ func TestStaticPolicyAdd(t *testing.T) {
 			stAssignments:   state.ContainerCPUAssignments{},
 			stDefaultCPUSet: cpuset.New(0, 1, 2, 3, 4, 5, 6, 7),
 			pod:             makePod("fakePod", "fakeContainer2", "8000m", "8000m"),
-			expErr:          fmt.Errorf("not enough cpus available to satisfy request: requested=8, available=7"),
+			expErr:          admission.NewOutOfResourceError(v1.ResourceCPU, fmt.Errorf("not enough cpus available to satisfy request: requested=8, available=7")),
 			expCPUAlloc:     false,
 			expCSet:         cpuset.New(),
 		},
@@ -525,7 +525,7 @@ func TestStaticPolicyAdd(t *testing.T) {
 			},
 			stDefaultCPUSet: cpuset.New(0, 4, 5, 6, 7, 8, 9, 10, 11),
 			pod:             makePod("fakePod", "fakeContainer5", "10000m", "10000m"),
-			expErr:          fmt.Errorf("not enough cpus available to satisfy request: requested=10, available=8"),
+			expErr:          admission.NewOutOfResourceError(v1.ResourceCPU, fmt.Errorf("not enough cpus available to satisfy request: requested=10, available=8")),
 			expCPUAlloc:     false,
 			expCSet:         cpuset.New(),
 		},
@@ -540,7 +540,7 @@ func TestStaticPolicyAdd(t *testing.T) {
 			},
 			stDefaultCPUSet: cpuset.New(0, 7),
 			pod:             makePod("fakePod", "fakeContainer5", "2000m", "2000m"),
-			expErr:          fmt.Errorf("not enough cpus available to satisfy request: requested=2, available=1"),
+			expErr:          admission.NewOutOfResourceError(v1.ResourceCPU, fmt.Errorf("not enough cpus available to satisfy request: requested=2, available=1")),
 			expCPUAlloc:     false,
 			expCSet:         cpuset.New(),
 		},
@@ -557,7 +557,7 @@ func TestStaticPolicyAdd(t *testing.T) {
 			},
 			stDefaultCPUSet: cpuset.New(10, 11, 53, 37, 55, 67, 52),
 			pod:             makePod("fakePod", "fakeContainer5", "76000m", "76000m"),
-			expErr:          fmt.Errorf("not enough cpus available to satisfy request: requested=76, available=7"),
+			expErr:          admission.NewOutOfResourceError(v1.ResourceCPU, fmt.Errorf("not enough cpus available to satisfy request: requested=76, available=7")),
 			expCPUAlloc:     false,
 			expCSet:         cpuset.New(),
 		},
@@ -1239,7 +1239,7 @@ func TestStaticPolicyAddWithResvList(t *testing.T) {
 			stAssignments:   state.ContainerCPUAssignments{},
 			stDefaultCPUSet: cpuset.New(0, 1, 2, 3, 4, 5, 6, 7),
 			pod:             makePod("fakePod", "fakeContainer2", "8000m", "8000m"),
-			expErr:          fmt.Errorf("not enough cpus available to satisfy request: requested=8, available=7"),
+			expErr:          admission.NewOutOfResourceError(v1.ResourceCPU, fmt.Errorf("not enough cpus available to satisfy request: requested=8, available=7")),
 			expCPUAlloc:     false,
 			expCSet:         cpuset.New(),
 		},
@@ -3148,8 +3148,8 @@ func TestStaticPolicyLifecycleAllocate(t *testing.T) {
 			skipped:     false,
 		},
 		{
-			description: "CPUManager static policy skips ResizeOperation",
-			operation:   lifecycle.ResizeOperation,
+			description: "CPUManager static policy skips UpdateOperation",
+			operation:   lifecycle.UpdateOperation,
 			skipped:     true,
 		},
 		{
@@ -3211,8 +3211,8 @@ func TestStaticPolicyLifecycleAllocatePod(t *testing.T) {
 			skipped:     false,
 		},
 		{
-			description: "CPUManager static policy skips ResizeOperation",
-			operation:   lifecycle.ResizeOperation,
+			description: "CPUManager static policy skips UpdateOperation",
+			operation:   lifecycle.UpdateOperation,
 			skipped:     true,
 		},
 		{
@@ -3273,8 +3273,8 @@ func TestStaticPolicyLifecycleGetTopologyHints(t *testing.T) {
 			skipped:     false,
 		},
 		{
-			description: "CPUManager static policy skips ResizeOperation",
-			operation:   lifecycle.ResizeOperation,
+			description: "CPUManager static policy skips UpdateOperation",
+			operation:   lifecycle.UpdateOperation,
 			skipped:     true,
 		},
 		{
@@ -3339,6 +3339,16 @@ func findHintForMask(hints []topologymanager.TopologyHint, mask bitmask.BitMask)
 type expectedHintScore struct {
 	mask  bitmask.BitMask
 	score int64
+}
+
+// scoringTopologyStore returns a topology manager store whose policy reads
+// hint scores. Hint providers skip computing a score when the configured
+// policy selects no NUMA allocation strategy, which is the default, so a test
+// that asserts scores has to ask for one.
+func scoringTopologyStore(logger klog.Logger) topologymanager.Store {
+	return topologymanager.NewFakeManagerWithPolicy(logger, topologymanager.NewBestEffortPolicy(nil, topologymanager.PolicyOptions{
+		NUMAAllocationStrategy: topologymanager.NUMAAllocationStrategyMostAllocated,
+	}))
 }
 
 func TestGenerateCPUTopologyHintsScore(t *testing.T) {
@@ -3465,10 +3475,12 @@ func TestGenerateCPUTopologyHintsScore(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
+			logger, _ := ktesting.NewTestContext(t)
 			p := staticPolicy{
 				topology:     tc.topo,
 				reservedCPUs: tc.reservedCPUs,
 				numaNodes:    tc.topo.CPUDetails.NUMANodes().List(),
+				affinity:     scoringTopologyStore(logger),
 			}
 			hints := p.generateCPUTopologyHints(tc.usableCPUs, tc.reusableCPUs, tc.freeCPUs, tc.request)
 
@@ -3545,7 +3557,7 @@ func TestRegeneratedCPUTopologyHintsScore(t *testing.T) {
 			tCtx := ktesting.Init(t)
 			logger := tCtx.Logger()
 
-			policy, err := NewStaticPolicy(logger, topoDualSocketNoHT, 0, cpuset.New(), topologymanager.NewFakeManager(logger), nil)
+			policy, err := NewStaticPolicy(logger, topoDualSocketNoHT, 0, cpuset.New(), scoringTopologyStore(logger), nil)
 			if err != nil {
 				t.Fatalf("NewStaticPolicy() failed: %v", err)
 			}
@@ -3581,8 +3593,8 @@ func TestStaticPolicyLifecycleGetPodTopologyHints(t *testing.T) {
 			skipped:     false,
 		},
 		{
-			description: "CPUManager static policy skips ResizeOperation",
-			operation:   lifecycle.ResizeOperation,
+			description: "CPUManager static policy skips UpdateOperation",
+			operation:   lifecycle.UpdateOperation,
 			skipped:     true,
 		},
 		{
@@ -3628,6 +3640,66 @@ func TestStaticPolicyLifecycleGetPodTopologyHints(t *testing.T) {
 				if strings.Contains(logs, expectedLog) {
 					t.Errorf("Unexpected log '%s' found in logs: %s", expectedLog, logs)
 				}
+			}
+		})
+	}
+}
+
+func TestStaticPolicyAdmissionRejectionType(t *testing.T) {
+	testCases := []struct {
+		description      string
+		reservedCPUs     cpuset.CPUSet
+		options          map[string]string
+		defaultCPUSet    cpuset.CPUSet
+		request          string
+		expReason        string
+		expRejectionType lifecycle.RejectionType
+	}{{
+		description:      "not enough free CPUs",
+		reservedCPUs:     cpuset.New(),
+		defaultCPUSet:    cpuset.New(0, 1, 2, 3, 4, 5, 6, 7),
+		request:          "8000m",
+		expReason:        lifecycle.OutOfCPU,
+		expRejectionType: lifecycle.RejectionBlocked,
+	}, {
+		description:      "not enough free physical CPUs",
+		reservedCPUs:     cpuset.New(0),
+		options:          map[string]string{FullPCPUsOnlyOption: "true"},
+		defaultCPUSet:    cpuset.New(1, 2, 3, 4, 5, 6, 7),
+		request:          "8000m",
+		expReason:        ErrorSMTAlignment,
+		expRejectionType: lifecycle.RejectionBlocked,
+	}, {
+		description:      "request not a multiple of the CPUs per core",
+		reservedCPUs:     cpuset.New(0),
+		options:          map[string]string{FullPCPUsOnlyOption: "true"},
+		defaultCPUSet:    cpuset.New(1, 2, 3, 4, 5, 6, 7),
+		request:          "1000m",
+		expReason:        ErrorSMTAlignment,
+		expRejectionType: lifecycle.RejectionInfeasible,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			logger, _ := ktesting.NewTestContext(t)
+			policy, err := NewStaticPolicy(logger, topoSingleSocketHT, 1, tc.reservedCPUs, topologymanager.NewFakeManager(logger), tc.options)
+			if err != nil {
+				t.Fatalf("NewStaticPolicy() failed: %v", err)
+			}
+			st := &mockState{
+				assignments:   state.ContainerCPUAssignments{},
+				defaultCPUSet: tc.defaultCPUSet,
+			}
+			pod := makePod("fakePod", "fakeContainer", tc.request, tc.request)
+			res := admission.GetPodAdmitResult(policy.Allocate(logger, st, pod, &pod.Spec.Containers[0], lifecycle.AddOperation))
+			if res.Admit {
+				t.Fatalf("expected Admit=false, got %+v", res)
+			}
+			if res.Reason != tc.expReason {
+				t.Errorf("expected Reason=%q, got %q", tc.expReason, res.Reason)
+			}
+			if res.RejectionType != tc.expRejectionType {
+				t.Errorf("expected RejectionType=%v, got %v", tc.expRejectionType, res.RejectionType)
 			}
 		})
 	}

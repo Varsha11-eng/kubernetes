@@ -405,7 +405,7 @@ func TestPreemption(t *testing.T) {
 				}).Label("node", "node2").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg1").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakePodGroup().Name("pg1").Priority(asyncframework.LowPriority).MinCount(1).
 					DisruptionModeAll().Obj(),
 			},
 			existingPods: []*v1.Pod{
@@ -449,7 +449,7 @@ func TestPreemption(t *testing.T) {
 			initTokens:             maxTokens,
 			genericWorkloadEnabled: true,
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg-single").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakePodGroup().Name("pg-single").Priority(asyncframework.LowPriority).MinCount(1).
 					DisruptionModeAll().Obj(),
 			},
 			existingPods: []*v1.Pod{
@@ -499,9 +499,9 @@ func TestPreemption(t *testing.T) {
 				}).Label("node", "node2").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg-low").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakePodGroup().Name("pg-low").Priority(asyncframework.LowPriority).MinCount(1).
 					DisruptionModeAll().Obj(),
-				st.MakePodGroup().Name("pg-medium").Priority(asyncframework.MediumPriority).BasicPolicy().
+				st.MakePodGroup().Name("pg-medium").Priority(asyncframework.MediumPriority).MinCount(1).
 					DisruptionModeAll().Obj(),
 			},
 			existingPods: []*v1.Pod{
@@ -571,7 +571,7 @@ func TestPreemption(t *testing.T) {
 				}).Label("node", "node2").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg-victim").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakePodGroup().Name("pg-victim").Priority(asyncframework.LowPriority).MinCount(1).
 					DisruptionModeAll().Obj(),
 			},
 			existingPods: []*v1.Pod{
@@ -682,11 +682,11 @@ func TestPreemption(t *testing.T) {
 				}).Label("node", "node2").Obj(),
 			},
 			compositePodGroups: []*schedulingv1beta1.CompositePodGroup{
-				st.MakeCompositePodGroup().Name("cpg1").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakeCompositePodGroup().Name("cpg1").Priority(asyncframework.LowPriority).MinGroupCount(1).
 					DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg1").Priority(asyncframework.LowPriority).BasicPolicy().ParentCompositePodGroup("cpg1").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
+				st.MakePodGroup().Name("pg1").Priority(asyncframework.LowPriority).MinCount(1).ParentCompositePodGroup("cpg1").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
 			},
 			existingPods: []*v1.Pod{
 				initPausePod(&testutils.PausePodConfig{
@@ -730,11 +730,11 @@ func TestPreemption(t *testing.T) {
 			genericWorkloadEnabled:   true,
 			compositePodGroupEnabled: true,
 			compositePodGroups: []*schedulingv1beta1.CompositePodGroup{
-				st.MakeCompositePodGroup().Name("cpg-single").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakeCompositePodGroup().Name("cpg-single").Priority(asyncframework.LowPriority).MinGroupCount(1).
 					DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg-single").Priority(asyncframework.LowPriority).BasicPolicy().ParentCompositePodGroup("cpg-single").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
+				st.MakePodGroup().Name("pg-single").Priority(asyncframework.LowPriority).MinCount(1).ParentCompositePodGroup("cpg-single").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
 			},
 			existingPods: []*v1.Pod{
 				initPausePod(&testutils.PausePodConfig{
@@ -784,14 +784,14 @@ func TestPreemption(t *testing.T) {
 				}).Label("node", "node2").Obj(),
 			},
 			compositePodGroups: []*schedulingv1beta1.CompositePodGroup{
-				st.MakeCompositePodGroup().Name("cpg-low").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakeCompositePodGroup().Name("cpg-low").Priority(asyncframework.LowPriority).MinGroupCount(1).
 					DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
-				st.MakeCompositePodGroup().Name("cpg-medium").Priority(asyncframework.MediumPriority).BasicPolicy().
+				st.MakeCompositePodGroup().Name("cpg-medium").Priority(asyncframework.MediumPriority).MinGroupCount(1).
 					DisruptionModeAll().WorkloadRef("wl2", "t2").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg-low").Priority(asyncframework.LowPriority).BasicPolicy().ParentCompositePodGroup("cpg-low").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
-				st.MakePodGroup().Name("pg-medium").Priority(asyncframework.MediumPriority).BasicPolicy().ParentCompositePodGroup("cpg-medium").DisruptionModeAll().WorkloadRef("wl2", "t2").Obj(),
+				st.MakePodGroup().Name("pg-low").Priority(asyncframework.LowPriority).MinCount(1).ParentCompositePodGroup("cpg-low").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
+				st.MakePodGroup().Name("pg-medium").Priority(asyncframework.MediumPriority).MinCount(1).ParentCompositePodGroup("cpg-medium").DisruptionModeAll().WorkloadRef("wl2", "t2").Obj(),
 			},
 			existingPods: []*v1.Pod{
 				initPausePod(&testutils.PausePodConfig{
@@ -861,11 +861,11 @@ func TestPreemption(t *testing.T) {
 				}).Label("node", "node2").Obj(),
 			},
 			compositePodGroups: []*schedulingv1beta1.CompositePodGroup{
-				st.MakeCompositePodGroup().Name("cpg-victim").Priority(asyncframework.LowPriority).BasicPolicy().
+				st.MakeCompositePodGroup().Name("cpg-victim").Priority(asyncframework.LowPriority).MinGroupCount(1).
 					DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
 			},
 			podGroups: []*schedulingv1beta1.PodGroup{
-				st.MakePodGroup().Name("pg-victim").Priority(asyncframework.LowPriority).BasicPolicy().ParentCompositePodGroup("cpg-victim").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
+				st.MakePodGroup().Name("pg-victim").Priority(asyncframework.LowPriority).MinCount(1).ParentCompositePodGroup("cpg-victim").DisruptionModeAll().WorkloadRef("wl1", "t1").Obj(),
 			},
 			existingPods: []*v1.Pod{
 				initPausePod(&testutils.PausePodConfig{
@@ -1538,7 +1538,8 @@ func TestAsyncPreemption(t *testing.T) {
 				{
 					// This Pod is lower priority than the preemptor Pod.
 					// Given the preemptor Pod is nominated to the node, this Pod should be unschedulable.
-					// This Pod will trigger the preemption to target the two victims that the first Pod doesn't target.
+					// Because preemptor-high-priority's preemption API calls are still blocked when this Pod runs PostFilter,
+					// all 4 victims are still present in the snapshot and this Pod selects all 4 victims (overlapping on lastVictim).
 					Name: "create a second Pod that is lower priority than the first preemptor Pod",
 					CreatePod: &asyncframework.CreatePod{
 						Pod: st.MakePod().Name("preemptor-mid-priority").Req(map[v1.ResourceName]string{v1.ResourceCPU: "2"}).Container("image").Priority(50).Obj(),

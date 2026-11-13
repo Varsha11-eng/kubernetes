@@ -425,9 +425,6 @@ type Device struct {
 	// If set to true, the scheduler will set the ResourceClaim.Status.Allocation.NodeSelector
 	// to match the node where the allocation was made.
 	//
-	// This is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus
-	// feature gates.
-	//
 	// +optional
 	// +featureGate=DRADeviceBindingConditions,DRAResourceClaimDeviceStatus
 	BindsToNode *bool
@@ -441,9 +438,6 @@ type Device struct {
 	// All entries are condition types, which means
 	// they must be labels.
 	//
-	// This is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus
-	// feature gates.
-	//
 	// +optional
 	// +listType=atomic
 	// +featureGate=DRADeviceBindingConditions,DRAResourceClaimDeviceStatus
@@ -456,9 +450,6 @@ type Device struct {
 	// The maximum number of binding conditions is 4.
 	// All entries are condition types, which means
 	// they must be labels.
-	//
-	// This is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus
-	// feature gates.
 	//
 	// +optional
 	// +listType=atomic
@@ -1862,9 +1853,6 @@ type AllocationResult struct {
 	// AllocationTimestamp stores the time when the resources were allocated.
 	// This field is not guaranteed to be set, in which case that time is unknown.
 	//
-	// This is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus
-	// feature gate.
-	//
 	// +optional
 	// +featureGate=DRADeviceBindingConditions,DRAResourceClaimDeviceStatus
 	AllocationTimestamp *metav1.Time
@@ -1960,9 +1948,6 @@ type DeviceRequestAllocationResult struct {
 	// BindingConditions contains a copy of the BindingConditions
 	// from the corresponding ResourceSlice at the time of allocation.
 	//
-	// This is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus
-	// feature gates.
-	//
 	// +optional
 	// +listType=atomic
 	// +featureGate=DRADeviceBindingConditions,DRAResourceClaimDeviceStatus
@@ -1970,9 +1955,6 @@ type DeviceRequestAllocationResult struct {
 
 	// BindingFailureConditions contains a copy of the BindingFailureConditions
 	// from the corresponding ResourceSlice at the time of allocation.
-	//
-	// This is a beta field and requires enabling the DRADeviceBindingConditions and DRAResourceClaimDeviceStatus
-	// feature gates.
 	//
 	// +optional
 	// +listType=atomic
@@ -2120,6 +2102,25 @@ type DeviceClassSpec struct {
 	// +optional
 	// +featureGate=DRAExtendedResource
 	ExtendedResourceName *string
+
+	// ExtendedResourceCapacityRequests defines the fixed capacity
+	// amounts that the scheduler requests on every ResourceClaim it
+	// synthesizes to satisfy the extended resource of this class.
+	//
+	// The value is copied, unmodified, onto the Capacity field of each
+	// ExactDeviceRequest synthesized for this class, so it has the same
+	// semantics as DeviceRequest.Capacity: it applies to each device
+	// allocation. A pod requesting more than one device through the
+	// extended resource gets that capacity once per device, not once
+	// per pod.
+	//
+	// The devices selected by this class must advertise the referenced
+	// capacities. Otherwise the extended resource requests cannot be
+	// satisfied, the same way as with a selector that matches no devices.
+	//
+	// +optional
+	// +featureGate=DRAExtendedResourceCapacity
+	ExtendedResourceCapacityRequests *CapacityRequirements
 }
 
 // DeviceClassConfiguration is used in DeviceClass.
@@ -2364,6 +2365,18 @@ type DeviceTaintSelector struct {
 	//
 	// +optional
 	Device *string
+
+	// all, if set to true, explicitly selects every device from every
+	// driver in the cluster. It must not be combined with driver, pool,
+	// or device: those must all be unset when all is true.
+	//
+	// Leaving driver, pool, and device all unset also selects every
+	// device, for historical reasons, but doing so without setting all
+	// is deprecated and may be rejected in a future release. Set all
+	// explicitly instead.
+	//
+	// +optional
+	All *bool
 }
 
 // DeviceTaintRuleStatus provides information about an on-going pod eviction.

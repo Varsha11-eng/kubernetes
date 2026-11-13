@@ -27,6 +27,7 @@ import (
 	"reflect"
 	"regexp"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,6 +85,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/configmap"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
+	"k8s.io/kubernetes/pkg/kubelet/events"
 	"k8s.io/kubernetes/pkg/kubelet/eviction"
 	"k8s.io/kubernetes/pkg/kubelet/images"
 	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig"
@@ -346,6 +348,7 @@ func newTestKubeletWithImageList(
 		config.NewSourcesReady(func(_ sets.Set[string]) bool { return enableResizing }),
 		kubelet.recorder,
 	)
+	kubelet.actuatedState = state.NewStateMemory(logger, nil, kuberuntime.KeepOnlyResourceValues)
 	volumeStatsAggPeriod := time.Second * 10
 	kubelet.resourceAnalyzer = serverstats.NewResourceAnalyzer(tCtx, kubelet, volumeStatsAggPeriod, kubelet.recorder)
 
@@ -455,7 +458,8 @@ func newTestKubeletWithImageList(
 		kubelet.recorder,
 		volumetest.NewBlockVolumePathHandler(),
 		kubelet.statusManager,
-		0)
+		0,
+		kubelet.actuatedState)
 
 	kubelet.pluginManager = pluginmanager.NewPluginManager(
 		kubelet.getPluginsRegistrationDir(), /* sockDir */
@@ -513,6 +517,9 @@ func createDNSConfigurer() *dns.Configurer {
 }
 
 func createGenericRuntimeManager(ctx context.Context, kubelet *Kubelet, kubeCfg kubeletconfiginternal.KubeletConfiguration, runtimeSvc internalapi.RuntimeService, imageSvc internalapi.ImageManagerService, tracerProvider oteltrace.TracerProvider) (kuberuntime.KubeGenericRuntime, []images.PostImageGCHook, error) {
+	if kubelet.actuatedState == nil {
+		kubelet.actuatedState = state.NewStateMemory(klog.FromContext(ctx), nil, kuberuntime.KeepOnlyResourceValues)
+	}
 	return kuberuntime.NewKubeGenericRuntimeManager(
 		ctx,
 		kubelet.recorder,
@@ -555,6 +562,7 @@ func createGenericRuntimeManager(ctx context.Context, kubelet *Kubelet, kubeCfg 
 		token.NewManager(kubelet.kubeClient),
 		func(string, string) (*v1.ServiceAccount, error) { return nil, nil },
 		kubelet.podStartupLatencyTracker,
+		kubelet.actuatedState,
 	)
 }
 
@@ -1908,7 +1916,7 @@ func TestSyncPodsSetStatusToFailedForPodsThatRunTooLong(t *testing.T) {
 	}
 
 	// Set up allocation for the pod before HandlePodUpdates
-	err := kubelet.allocationManager.SetAllocatedResources(klog.FromContext(tCtx), pods[0])
+	err := kubelet.allocationManager.SetAllocatedPod(klog.FromContext(tCtx), pods[0])
 	require.NoError(t, err)
 
 	// Let the pod worker sets the status to fail after this sync.
@@ -1965,7 +1973,7 @@ func TestSyncPodsDoesNotSetPodsThatDidNotRunTooLongToFailed(t *testing.T) {
 	kubelet.podManager.SetPods(pods)
 
 	// Set up allocation for the pod before HandlePodUpdates
-	err := kubelet.allocationManager.SetAllocatedResources(klog.FromContext(tCtx), pods[0])
+	err := kubelet.allocationManager.SetAllocatedPod(klog.FromContext(tCtx), pods[0])
 	require.NoError(t, err)
 
 	kubelet.HandlePodUpdates(tCtx, pods)
@@ -2853,7 +2861,6 @@ func TestHandlePodAdditionsTracksCertificatesOnlyForAdmittedPods(t *testing.T) {
 func TestPodResourceAllocationReset(t *testing.T) {
 	logger, tCtx := ktesting.NewTestContext(t)
 
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
 	testKubelet := newTestKubelet(t, false)
 	defer testKubelet.Cleanup()
 	kubelet := testKubelet.kubelet
@@ -3050,7 +3057,7 @@ func TestPodResourceAllocationReset(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.existingPodAllocation != nil {
 				// when kubelet restarts, AllocatedResources has already existed before adding pod
-				err := kubelet.allocationManager.SetAllocatedResources(logger, tc.existingPodAllocation)
+				err := kubelet.allocationManager.SetAllocatedPod(logger, tc.existingPodAllocation)
 				if err != nil {
 					t.Fatalf("failed to set pod allocation: %v", err)
 				}
@@ -5149,7 +5156,7 @@ func TestHandlePodUpdates_RecordContainerRequestedResizes(t *testing.T) {
 			kubelet := testKubelet.kubelet
 
 			kubelet.podManager.AddPod(initialPod)
-			require.NoError(t, kubelet.allocationManager.SetAllocatedResources(logger, initialPod))
+			require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, initialPod))
 			kubelet.HandlePodUpdates(tCtx, []*v1.Pod{updatedPod})
 
 			tc.updateExpectedFunc(&expectedMetrics)
@@ -5213,7 +5220,6 @@ func TestHandlePodUpdates_VolumeResize(t *testing.T) {
 		t.Skip("InPlacePodVerticalScaling is not currently supported for Windows")
 	}
 
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingMemoryBackedVolumes, true)
 	tCtx := ktesting.Init(t)
 
@@ -5431,12 +5437,12 @@ func TestHandlePodUpdates_VolumeResize(t *testing.T) {
 			kubelet := testKubelet.kubelet
 
 			kubelet.podManager.AddPod(initialPod)
-			require.NoError(t, kubelet.allocationManager.SetAllocatedResources(logger, initialPod))
+			require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, initialPod))
 			kubelet.HandlePodUpdates(tCtx, []*v1.Pod{resizedPod})
 
 			allocatedPod, wasUpdated := kubelet.allocationManager.UpdatePodFromAllocation(resizedPod.DeepCopy())
 			assert.Equal(t, tt.allocatedDiffersFromDesired, wasUpdated)
-			assert.Equal(t, tt.allocatedDiffersFromDesired, kubelet.allocationManager.HasPendingResizes())
+			assert.Equal(t, tt.allocatedDiffersFromDesired, kubelet.allocationManager.HasPendingAllocations())
 
 			if tt.allocatedDiffersFromDesired {
 				// Reverted back to the initial (old) limit!
@@ -5450,11 +5456,282 @@ func TestHandlePodUpdates_VolumeResize(t *testing.T) {
 	}
 }
 
+func TestHandlePodUpdates_RecordVolumeRequestedResizes(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("InPlacePodVerticalScaling is not currently supported for Windows")
+	}
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingMemoryBackedVolumes, true)
+
+	logger, tCtx := ktesting.NewTestContext(t)
+	metrics.Register()
+	metrics.VolumeRequestedResizes.Reset()
+
+	type expectedMetricsStruct struct {
+		memoryVolumeCounter map[string]int
+	}
+	expectedMetrics := expectedMetricsStruct{
+		memoryVolumeCounter: make(map[string]int),
+	}
+
+	for _, tc := range []struct {
+		name               string
+		initialAllocation  *v1.Pod
+		updatedPod         *v1.Pod
+		updateExpectedFunc func(*expectedMetricsStruct)
+	}{
+		{
+			name: "add volume sizeLimit",
+			initialAllocation: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium: v1.StorageMediumMemory,
+							},
+						},
+					}},
+				},
+			},
+			updatedPod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("100Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updateExpectedFunc: func(e *expectedMetricsStruct) {
+				e.memoryVolumeCounter["add"]++
+			},
+		},
+		{
+			name: "remove volume sizeLimit",
+			initialAllocation: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("100Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updatedPod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium: v1.StorageMediumMemory,
+							},
+						},
+					}},
+				},
+			},
+			updateExpectedFunc: func(e *expectedMetricsStruct) {
+				e.memoryVolumeCounter["remove"]++
+			},
+		},
+		{
+			name: "increase volume sizeLimit",
+			initialAllocation: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("100Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updatedPod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("200Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updateExpectedFunc: func(e *expectedMetricsStruct) {
+				e.memoryVolumeCounter["increase"]++
+			},
+		},
+		{
+			name: "decrease volume sizeLimit",
+			initialAllocation: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("200Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updatedPod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("100Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updateExpectedFunc: func(e *expectedMetricsStruct) {
+				e.memoryVolumeCounter["decrease"]++
+			},
+		},
+		{
+			name: "non-memory volume sizeLimit ignored",
+			initialAllocation: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "disk-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumDefault,
+								SizeLimit: new(resource.MustParse("100Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updatedPod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "disk-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumDefault,
+								SizeLimit: new(resource.MustParse("200Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updateExpectedFunc: func(e *expectedMetricsStruct) {},
+		},
+		{
+			name: "resize volume when another volume is added before it",
+			initialAllocation: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{{
+						Name: "mem-vol",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{
+								Medium:    v1.StorageMediumMemory,
+								SizeLimit: new(resource.MustParse("100Mi")),
+							},
+						},
+					}},
+				},
+			},
+			updatedPod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Volumes: []v1.Volume{
+						{
+							Name: "added-vol",
+							VolumeSource: v1.VolumeSource{
+								EmptyDir: &v1.EmptyDirVolumeSource{
+									Medium:    v1.StorageMediumMemory,
+									SizeLimit: new(resource.MustParse("50Mi")),
+								},
+							},
+						},
+						{
+							Name: "mem-vol",
+							VolumeSource: v1.VolumeSource{
+								EmptyDir: &v1.EmptyDirVolumeSource{
+									Medium:    v1.StorageMediumMemory,
+									SizeLimit: new(resource.MustParse("200Mi")),
+								},
+							},
+						},
+					},
+				},
+			},
+			updateExpectedFunc: func(e *expectedMetricsStruct) {
+				e.memoryVolumeCounter["increase"]++
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testPod := &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-pod",
+					UID:  "12345",
+				},
+			}
+			initialPod := testPod.DeepCopy()
+			updatedPod := testPod.DeepCopy()
+
+			initialPod.Spec = tc.initialAllocation.Spec
+			updatedPod.Spec = tc.updatedPod.Spec
+
+			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+			t.Cleanup(func() { testKubelet.Cleanup() })
+			kubelet := testKubelet.kubelet
+
+			kubelet.podManager.AddPod(initialPod)
+			require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, initialPod))
+			kubelet.HandlePodUpdates(tCtx, []*v1.Pod{updatedPod})
+
+			tc.updateExpectedFunc(&expectedMetrics)
+
+			expectedFormat := `
+				# HELP kubelet_volume_requested_resizes_total [ALPHA] Number of requested resizes, counted at the volume level. The 'medium' label refers to the volume storage medium (e.g. 'memory'); the 'operation' label can be one of 'add', 'remove', 'increase' or 'decrease'.
+				# TYPE kubelet_volume_requested_resizes_total counter
+				kubelet_volume_requested_resizes_total{medium="memory",operation="add"} %d
+				kubelet_volume_requested_resizes_total{medium="memory",operation="decrease"} %d
+				kubelet_volume_requested_resizes_total{medium="memory",operation="increase"} %d
+				kubelet_volume_requested_resizes_total{medium="memory",operation="remove"} %d
+			`
+
+			expected := fmt.Sprintf(expectedFormat,
+				expectedMetrics.memoryVolumeCounter["add"],
+				expectedMetrics.memoryVolumeCounter["decrease"],
+				expectedMetrics.memoryVolumeCounter["increase"],
+				expectedMetrics.memoryVolumeCounter["remove"],
+			)
+
+			re := regexp.MustCompile("(?m)[\r\n]+^.*} 0.*$")
+			expected = re.ReplaceAllString(expected, "")
+
+			require.NoError(t, testutil.GatherAndCompare(
+				legacyregistry.DefaultGatherer, strings.NewReader(expected), "kubelet_volume_requested_resizes_total",
+			))
+		})
+	}
+}
+
 func TestHandlePodReconcile_RetryPendingResizes(t *testing.T) {
 	if goruntime.GOOS == "windows" {
 		t.Skip("InPlacePodVerticalScaling is not currently supported for Windows")
 	}
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DRANodeAllocatableResources, true)
 	logger, tCtx := ktesting.NewTestContext(t)
 
@@ -5624,9 +5901,9 @@ func TestHandlePodReconcile_RetryPendingResizes(t *testing.T) {
 			handler := &testPodAdmitHandler{podsToReject: []*v1.Pod{pendingResizeAllocated}}
 			kubelet.allocationManager.AddPodAdmitHandlers(lifecycle.PodAdmitHandlers{handler})
 
-			require.NoError(t, kubelet.allocationManager.SetAllocatedResources(logger, pendingResizeAllocated))
+			require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, pendingResizeAllocated))
 			if tc.setAllocation {
-				require.NoError(t, kubelet.allocationManager.SetAllocatedResources(logger, tc.oldPod))
+				require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, tc.oldPod))
 			}
 
 			// We only expect status resources to change in HandlePodReconcile.
@@ -5634,7 +5911,7 @@ func TestHandlePodReconcile_RetryPendingResizes(t *testing.T) {
 
 			kubelet.podManager.AddPod(pendingResizeDesired)
 			kubelet.podManager.AddPod(tc.oldPod)
-			kubelet.allocationManager.PushPendingResize(logger, pendingResizeDesired.UID)
+			kubelet.allocationManager.PushPendingAllocation(logger, pendingResizeDesired.UID)
 
 			kubelet.statusManager.ClearPodResizePendingCondition(pendingResizeDesired.UID, metrics.DeferredResizeResolutionAccepted)
 			kubelet.HandlePodReconcile(tCtx, []*v1.Pod{tc.newPod})
@@ -5687,6 +5964,15 @@ func TestSyncPodNodeDeclaredFeaturesUpdate(t *testing.T) {
 	}
 	newPod := oldPod.DeepCopy()
 	newPod.Spec.Containers[0].Resources.Requests[v1.ResourceCPU] = cpu2000m
+	podWithEphemeral := oldPod.DeepCopy()
+	podWithEphemeral.Spec.EphemeralContainers = []v1.EphemeralContainer{{
+		EphemeralContainerCommon: v1.EphemeralContainerCommon{Name: "debugger"},
+	}}
+	podPendingResizeWithEphemeral := newPod.DeepCopy()
+	podPendingResizeWithEphemeral.Spec.EphemeralContainers = []v1.EphemeralContainer{{
+		EphemeralContainerCommon: v1.EphemeralContainerCommon{Name: "debugger"},
+	}}
+
 	createMockFeature := func(t *testing.T, name string, inferForUpdate bool, maxVersionStr string) *ndftesting.MockFeature {
 		m := ndftesting.NewMockFeature(t)
 		m.SetName(name)
@@ -5698,17 +5984,41 @@ func TestSyncPodNodeDeclaredFeaturesUpdate(t *testing.T) {
 		}
 		return m
 	}
+	createEphemeralContainerFeature := func(t *testing.T, name string) *ndftesting.MockFeature {
+		m := ndftesting.NewMockFeature(t)
+		m.SetName(name)
+		m.SetInferForScheduling(func(podInfo *ndf.PodInfo) bool {
+			return podInfo.Spec != nil && len(podInfo.Spec.EphemeralContainers) > 0
+		})
+		m.SetMaxVersion(nil)
+		return m
+	}
+	// createCPUFeature returns a feature required by pods whose first container requests cpu.
+	createCPUFeature := func(t *testing.T, name string, cpu resource.Quantity) *ndftesting.MockFeature {
+		m := ndftesting.NewMockFeature(t)
+		m.SetName(name)
+		m.SetInferForScheduling(func(podInfo *ndf.PodInfo) bool {
+			return podInfo.Spec != nil && len(podInfo.Spec.Containers) > 0 &&
+				cpu.Equal(*podInfo.Spec.Containers[0].Resources.Requests.Cpu())
+		})
+		m.SetMaxVersion(nil)
+		return m
+	}
 
 	testCases := []struct {
-		name               string
-		featureGateEnabled bool
-		nodeFeatures       []string
-		oldPod             *v1.Pod
-		newPod             *v1.Pod
-		registeredFeatures []ndf.Feature
-		expectEvent        bool
-		expectedEventMsg   string
-		componentVersion   string
+		name                   string
+		featureGateEnabled     bool
+		nodeFeatures           []string
+		allocatedPod           *v1.Pod
+		oldPod                 *v1.Pod
+		newPod                 *v1.Pod
+		registeredFeatures     []ndf.Feature
+		registerAdmitHandler   bool
+		expectEvent            bool
+		expectedEventMsg       string
+		expectPendingCondition bool
+		expectAllocated        bool
+		componentVersion       string
 	}{
 		{
 			name:               "Feature gate disabled",
@@ -5770,6 +6080,58 @@ func TestSyncPodNodeDeclaredFeaturesUpdate(t *testing.T) {
 			registeredFeatures: []ndf.Feature{createMockFeature(t, "FeatureA", true, ""), createMockFeature(t, "FeatureB", false, "")},
 			expectEvent:        false,
 		},
+		{
+			name:               "Passthrough field update (ephemeral container) emits FailedNodeDeclaredFeaturesCheck event when unsupported",
+			featureGateEnabled: true,
+			componentVersion:   "1.35.0",
+			allocatedPod:       oldPod,
+			oldPod:             oldPod,
+			newPod:             podWithEphemeral,
+			nodeFeatures:       []string{},
+			registeredFeatures: []ndf.Feature{createEphemeralContainerFeature(t, "EphemeralFeature")},
+			expectEvent:        true,
+			expectedEventMsg:   "Pod requires node features that are not available: EphemeralFeature",
+		},
+		{
+			name:                   "Gated field update rejected in allocation admission does not emit FailedNodeDeclaredFeaturesCheck event",
+			featureGateEnabled:     true,
+			componentVersion:       "1.35.0",
+			allocatedPod:           oldPod,
+			oldPod:                 oldPod,
+			newPod:                 newPod,
+			nodeFeatures:           []string{},
+			registeredFeatures:     []ndf.Feature{createCPUFeature(t, "CPU2Feature", cpu2000m)},
+			registerAdmitHandler:   true,
+			expectEvent:            false,
+			expectPendingCondition: true,
+		},
+		{
+			name:                   "Unallocated gated update already pending on oldPod does not cause false-positive event on passthrough update",
+			featureGateEnabled:     true,
+			componentVersion:       "1.35.0",
+			allocatedPod:           oldPod,
+			oldPod:                 newPod,
+			newPod:                 podPendingResizeWithEphemeral,
+			nodeFeatures:           []string{},
+			registeredFeatures:     []ndf.Feature{createCPUFeature(t, "CPU2Feature", cpu2000m)},
+			registerAdmitHandler:   true,
+			expectEvent:            false,
+			expectPendingCondition: true,
+		},
+		{
+			name:               "Admitted gated update that drops a feature requirement does not cause false-positive event",
+			featureGateEnabled: true,
+			componentVersion:   "1.35.0",
+			allocatedPod:       oldPod,
+			oldPod:             oldPod,
+			newPod:             newPod,
+			nodeFeatures:       []string{},
+			// The allocated pod requires CPU1Feature, the updated pod doesn't.
+			registeredFeatures:   []ndf.Feature{createCPUFeature(t, "CPU1Feature", cpu1000m)},
+			registerAdmitHandler: true,
+			expectEvent:          false,
+			expectAllocated:      true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -5780,7 +6142,12 @@ func TestSyncPodNodeDeclaredFeaturesUpdate(t *testing.T) {
 				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.NodeDeclaredFeatures, false)
 			}
 
-			testKubelet := newTestKubelet(t, false)
+			var testKubelet *TestKubelet
+			if tc.registerAdmitHandler {
+				testKubelet = newTestKubeletExcludeAdmitHandlers(t, false, true)
+			} else {
+				testKubelet = newTestKubelet(t, false)
+			}
 			defer testKubelet.Cleanup()
 			kubelet := testKubelet.kubelet
 
@@ -5793,27 +6160,51 @@ func TestSyncPodNodeDeclaredFeaturesUpdate(t *testing.T) {
 			kubelet.nodeDeclaredFeatures = tc.nodeFeatures
 			kubelet.nodeDeclaredFeaturesSet = framework.MustMapSorted(kubelet.nodeDeclaredFeatures)
 			kubelet.version = utilversion.MustParse("1.35.0")
+			if tc.registerAdmitHandler {
+				kubelet.allocationManager.AddPodAdmitHandlers(lifecycle.PodAdmitHandlers{
+					lifecycle.NewDeclaredFeaturesAdmitHandler(framework, kubelet.nodeDeclaredFeaturesSet, kubelet.version),
+				})
+			}
 
 			if tc.oldPod != nil {
 				kubelet.podManager.SetPods([]*v1.Pod{tc.oldPod})
 			}
 
-			kubelet.statusManager.SetPodStatus(logger, tc.newPod, v1.PodStatus{Phase: v1.PodRunning})
-			require.NoError(t, kubelet.allocationManager.SetAllocatedResources(logger, tc.newPod))
+			allocated := tc.allocatedPod
+			if allocated == nil {
+				allocated = tc.newPod
+			}
+			kubelet.statusManager.SetPodStatus(logger, allocated, v1.PodStatus{Phase: v1.PodRunning})
+			require.NoError(t, kubelet.allocationManager.SetAllocatedPod(logger, allocated))
 			kubelet.HandlePodUpdates(tCtx, []*v1.Pod{tc.newPod})
+			if tc.expectPendingCondition {
+				conditions := kubelet.statusManager.GetPodResizeConditions(tc.newPod.UID)
+				require.Len(t, conditions, 1)
+				assert.Equal(t, v1.PodResizePending, conditions[0].Type)
+				assert.Equal(t, v1.PodReasonInfeasible, conditions[0].Reason)
+			}
+			if tc.expectAllocated {
+				_, pending := kubelet.allocationManager.UpdatePodFromAllocation(tc.newPod)
+				assert.False(t, pending, "expected the update to be allocated")
+			}
 			if tc.expectEvent {
-				select {
-				case event := <-recorder.Events:
-					assert.Contains(t, event, tc.expectedEventMsg)
-				default:
-					t.Errorf("Expected an event but did not receive one.")
+				found := false
+				for len(recorder.Events) > 0 {
+					event := <-recorder.Events
+					if strings.Contains(event, events.FailedNodeDeclaredFeaturesCheck) {
+						assert.Contains(t, event, tc.expectedEventMsg)
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("Expected a %s event containing %q, but did not receive one.", events.FailedNodeDeclaredFeaturesCheck, tc.expectedEventMsg)
 				}
 			} else {
-				select {
-				case event := <-recorder.Events:
-					t.Errorf("Expected no event, but received: %s", event)
-				default:
-					// No event received, which is correct.
+				for len(recorder.Events) > 0 {
+					event := <-recorder.Events
+					if strings.Contains(event, events.FailedNodeDeclaredFeaturesCheck) {
+						t.Errorf("Expected no %s event, but received: %s", events.FailedNodeDeclaredFeaturesCheck, event)
+					}
 				}
 			}
 		})
@@ -5998,7 +6389,6 @@ func TestHandlePodUpdates_ResizeTerminatingPods(t *testing.T) {
 	if goruntime.GOOS == "windows" {
 		t.Skip("InPlacePodVerticalScaling is not currently supported for Windows")
 	}
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
 	metrics.Register()
 
 	const podUID types.UID = "pod-1"
@@ -6051,7 +6441,7 @@ func TestHandlePodUpdates_ResizeTerminatingPods(t *testing.T) {
 		allocatedPod := newPod(1, cpu100m)
 		kl.podManager.SetPods([]*v1.Pod{podManagerPod})
 		kl.statusManager.SetPodStatus(logger, allocatedPod, v1.PodStatus{Phase: v1.PodRunning})
-		require.NoError(t, kl.allocationManager.SetAllocatedResources(logger, allocatedPod))
+		require.NoError(t, kl.allocationManager.SetAllocatedPod(logger, allocatedPod))
 		return logger, tCtx, kl
 	}
 
@@ -6071,7 +6461,7 @@ func TestHandlePodUpdates_ResizeTerminatingPods(t *testing.T) {
 
 	assertResizeHalted := func(t *testing.T, kl *Kubelet) {
 		t.Helper()
-		assert.False(t, kl.allocationManager.HasPendingResizes())
+		assert.False(t, kl.allocationManager.HasPendingAllocations())
 		assertAllocatedCPU(t, kl, cpu100m)
 		assert.Empty(t, kl.statusManager.GetPodResizeConditions(podUID))
 	}
@@ -6142,8 +6532,8 @@ func TestHandlePodUpdates_ResizeTerminatingPods(t *testing.T) {
 				resizedPod := newPod(2, cpu200m)
 				logger, tCtx, kl := setup(t, resizedPod)
 				kl.statusManager.SetPodResizePendingCondition(podUID, v1.PodReasonDeferred, "deferred", resizedPod.Generation)
-				kl.allocationManager.PushPendingResize(logger, podUID)
-				require.True(t, kl.allocationManager.HasPendingResizes())
+				kl.allocationManager.PushPendingAllocation(logger, podUID)
+				require.True(t, kl.allocationManager.HasPendingAllocations())
 
 				updatedPod := resizedPod.DeepCopy()
 				tc.mutate(logger, kl, updatedPod)
@@ -6151,6 +6541,248 @@ func TestHandlePodUpdates_ResizeTerminatingPods(t *testing.T) {
 
 				assertResizeHalted(t, kl)
 			})
+		})
+	}
+}
+
+func TestAllocatedPodManager(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScalingMemoryBackedVolumes, true)
+	logger, _ := ktesting.NewTestContext(t)
+	testKubelet := newTestKubelet(t, false)
+	defer testKubelet.Cleanup()
+	kl := testKubelet.kubelet
+
+	apm := &allocatedPodManager{
+		baseManager:       kl.podManager,
+		allocationManager: kl.allocationManager,
+	}
+
+	// Pod without a memory-backed emptyDir should bypass UpdatePodFromAllocation and return the desired pod directly.
+	podWithoutMemVol := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "pod-no-mem-vol",
+			Name:      "pod-no-mem-vol",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c1",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{v1.ResourceMemory: resource.MustParse("100Mi")},
+					},
+				},
+			},
+			Volumes: []v1.Volume{
+				{
+					Name: "disk-vol",
+					VolumeSource: v1.VolumeSource{
+						EmptyDir: &v1.EmptyDirVolumeSource{
+							Medium: v1.StorageMediumDefault,
+						},
+					},
+				},
+			},
+		},
+	}
+	require.NoError(t, kl.allocationManager.SetAllocatedPod(logger, podWithoutMemVol))
+
+	desiredPodWithoutMemVol := podWithoutMemVol.DeepCopy()
+	desiredPodWithoutMemVol.Spec.Containers[0].Resources.Limits[v1.ResourceMemory] = resource.MustParse("200Mi")
+	kl.podManager.SetPods([]*v1.Pod{desiredPodWithoutMemVol})
+
+	gotPod, found := apm.GetPodByUID(podWithoutMemVol.UID)
+	require.True(t, found)
+	assert.Same(t, desiredPodWithoutMemVol, gotPod)
+
+	// Pod with a memory-backed emptyDir should consult UpdatePodFromAllocation and return the allocated pod.
+	size100Mi := resource.MustParse("100Mi")
+	size200Mi := resource.MustParse("200Mi")
+	podWithMemVol := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "pod-with-mem-vol",
+			Name:      "pod-with-mem-vol",
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "c1",
+					Resources: v1.ResourceRequirements{
+						Limits: v1.ResourceList{v1.ResourceMemory: size200Mi},
+					},
+				},
+			},
+			Volumes: []v1.Volume{
+				{
+					Name: "mem-vol",
+					VolumeSource: v1.VolumeSource{
+						EmptyDir: &v1.EmptyDirVolumeSource{
+							Medium:    v1.StorageMediumMemory,
+							SizeLimit: &size100Mi,
+						},
+					},
+				},
+			},
+		},
+	}
+	require.NoError(t, kl.allocationManager.SetAllocatedPod(logger, podWithMemVol))
+
+	desiredPodWithMemVol := podWithMemVol.DeepCopy()
+	desiredPodWithMemVol.Spec.Volumes[0].EmptyDir.SizeLimit = &size200Mi
+	kl.podManager.SetPods([]*v1.Pod{desiredPodWithMemVol})
+
+	gotPod, found = apm.GetPodByUID(podWithMemVol.UID)
+	require.True(t, found)
+	require.NotNil(t, gotPod.Spec.Volumes[0].EmptyDir.SizeLimit)
+	assert.True(t, size100Mi.Equal(*gotPod.Spec.Volumes[0].EmptyDir.SizeLimit))
+
+	gotPods := apm.GetPods()
+	require.Len(t, gotPods, 1)
+	assert.True(t, size100Mi.Equal(*gotPods[0].Spec.Volumes[0].EmptyDir.SizeLimit))
+}
+
+func TestSyncPodSecurityProfileOCI(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SecurityProfileOCI, true)
+	transientErr := errors.New("failed to pull security profile: RegistryUnavailable: timeout")
+	rejectedErr := fmt.Errorf("%w: security profile %q: SecurityProfileInvalid: invalid content", images.ErrSecurityProfileRejected, "registry.example.com/profile@sha256:0")
+	runningStatus := &kubecontainer.PodStatus{SandboxStatuses: []*runtimeapi.PodSandboxStatus{{
+		Id:       "sandbox",
+		Metadata: &runtimeapi.PodSandboxMetadata{Name: "oci", Namespace: "new", Uid: "12345678"},
+		State:    runtimeapi.PodSandboxState_SANDBOX_READY,
+		Network:  &runtimeapi.PodSandboxNetworkStatus{Ip: "10.0.0.1"},
+	}}}
+	// For example after a node reboot.
+	exitedStatus := &kubecontainer.PodStatus{
+		SandboxStatuses: []*runtimeapi.PodSandboxStatus{{
+			Id:       "sandbox",
+			Metadata: &runtimeapi.PodSandboxMetadata{Name: "oci", Namespace: "new", Uid: "12345678"},
+			State:    runtimeapi.PodSandboxState_SANDBOX_NOTREADY,
+		}},
+		ContainerStatuses: []*kubecontainer.Status{{Name: "foo", State: kubecontainer.ContainerStateExited}},
+	}
+	for _, tc := range []struct {
+		name             string
+		err              error
+		podStatus        *kubecontainer.PodStatus
+		expectedEnsure   bool
+		expectedTerminal bool
+		expectedErr      bool
+		expectedSync     bool
+	}{{
+		name:           "pulled",
+		expectedEnsure: true,
+		expectedSync:   true,
+	}, {
+		name:           "transient failure is retried",
+		err:            transientErr,
+		expectedEnsure: true,
+		expectedErr:    true,
+	}, {
+		name:             "rejected profile fails the pod",
+		err:              rejectedErr,
+		expectedEnsure:   true,
+		expectedTerminal: true,
+	}, {
+		name:         "running pod is synced without pulling its profiles up front",
+		err:          transientErr,
+		podStatus:    runningStatus,
+		expectedSync: true,
+	}, {
+		name:         "pod with exited containers is not failed on rejection",
+		err:          rejectedErr,
+		podStatus:    exitedStatus,
+		expectedSync: true,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tCtx := ktesting.Init(t)
+			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+			defer testKubelet.Cleanup()
+			kubelet := testKubelet.kubelet
+			fakeRuntime := testKubelet.fakeRuntime
+			fakeRuntime.EnsureSecurityProfilesErr = tc.err
+
+			pod := podWithUIDNameNsSpec("12345678", "oci", "new", v1.PodSpec{Containers: []v1.Container{{Name: "foo"}}})
+			kubelet.podManager.SetPods([]*v1.Pod{pod})
+			podStatus := tc.podStatus
+			if podStatus == nil {
+				podStatus = &kubecontainer.PodStatus{}
+			}
+			isTerminal, _, err := kubelet.SyncPod(tCtx, kubetypes.SyncPodCreate, pod, nil, podStatus)
+			assert.Equal(t, tc.expectedTerminal, isTerminal)
+			assert.Equal(t, tc.expectedErr, err != nil, "error: %v", err)
+			assert.Equal(t, tc.expectedEnsure, slices.Contains(fakeRuntime.CalledFunctions, "EnsureSecurityProfiles"))
+			assert.Equal(t, tc.expectedSync, slices.Contains(fakeRuntime.CalledFunctions, "SyncPod"))
+			if tc.expectedTerminal {
+				status, found := kubelet.statusManager.GetPodStatus(pod.UID)
+				require.True(t, found)
+				assert.Equal(t, v1.PodFailed, status.Phase)
+				assert.Equal(t, securityProfileRejectedReason, status.Reason)
+			}
+		})
+	}
+}
+
+func TestSyncPodSecurityProfileOCIDisabled(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.SecurityProfileOCI, false)
+	tCtx := ktesting.Init(t)
+	testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+	defer testKubelet.Cleanup()
+	pod := podWithUIDNameNsSpec("12345678", "oci", "new", v1.PodSpec{Containers: []v1.Container{{Name: "foo"}}})
+	testKubelet.kubelet.podManager.SetPods([]*v1.Pod{pod})
+	_, _, err := testKubelet.kubelet.SyncPod(tCtx, kubetypes.SyncPodCreate, pod, nil, &kubecontainer.PodStatus{})
+	require.NoError(t, err)
+	assert.NotContains(t, testKubelet.fakeRuntime.CalledFunctions, "EnsureSecurityProfiles")
+}
+
+type fakeSecurityProfileGCManager struct {
+	collections int
+}
+
+func (f *fakeSecurityProfileGCManager) GarbageCollect(context.Context) error {
+	f.collections++
+	return nil
+}
+
+// TestCollectSecurityProfiles checks the guards of the security profile
+// garbage collection: nothing is collected while the runtime does not report
+// support or while a pod source is not ready, because the profiles of the pods
+// it has not delivered yet would look unused.
+func TestCollectSecurityProfiles(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		features     *kubecontainer.RuntimeFeatures
+		sourcesReady bool
+		collections  int
+	}{{
+		name:         "runtime support and sources ready",
+		features:     &kubecontainer.RuntimeFeatures{SeccompProfileOCI: true},
+		sourcesReady: true,
+		collections:  1,
+	}, {
+		name:         "sources not ready",
+		features:     &kubecontainer.RuntimeFeatures{SeccompProfileOCI: true},
+		sourcesReady: false,
+	}, {
+		name:         "runtime without support",
+		features:     &kubecontainer.RuntimeFeatures{},
+		sourcesReady: true,
+	}, {
+		name:         "runtime features unknown",
+		sourcesReady: true,
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tCtx := ktesting.Init(t)
+			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+			defer testKubelet.Cleanup()
+			kubelet := testKubelet.kubelet
+			gc := &fakeSecurityProfileGCManager{}
+			kubelet.securityProfileGCManager = gc
+			kubelet.runtimeState.setRuntimeFeatures(tc.features)
+			kubelet.sourcesReady = config.NewSourcesReady(func(_ sets.Set[string]) bool { return tc.sourcesReady })
+
+			kubelet.collectSecurityProfiles(tCtx)
+			assert.Equal(t, tc.collections, gc.collections)
 		})
 	}
 }

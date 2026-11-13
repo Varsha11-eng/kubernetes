@@ -53,36 +53,38 @@ type podResizesAdmitHandler struct {
 	allocationManager Manager
 }
 
+// Admit counts infeasible resizes in metrics, so it must be registered before any other admit
+// handler, which ensures it never runs in dry run.
 func (h *podResizesAdmitHandler) Admit(ctx context.Context, attrs *lifecycle.PodAdmitAttributes) lifecycle.PodAdmitResult {
-	if attrs.Operation != lifecycle.ResizeOperation {
+	if attrs.Operation != lifecycle.UpdateOperation || !attrs.Update.Resize {
 		return lifecycle.PodAdmitResult{Admit: true}
 	}
 
 	logger := klog.FromContext(ctx)
 	pod := attrs.Pod
-	allocatedPod, _ := h.allocationManager.UpdatePodFromAllocation(pod)
+	allocatedPod := attrs.Update.AllocatedPod
 	if resizable, msg, reason := IsInPlacePodVerticalScalingAllowed(pod); !resizable {
 		// If there is a pending resize but the resize is not allowed, always use the allocated resources.
 		metrics.PodInfeasibleResizes.WithLabelValues(reason).Inc()
-		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg}
+		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
 	if resizeNotAllowed, msg := disallowResizeForSwappableContainers(h.containerRuntime, pod, allocatedPod); resizeNotAllowed {
 		// If this resize involve swap recalculation, set as infeasible, as IPPR with swap is not supported for beta.
 		metrics.PodInfeasibleResizes.WithLabelValues("swap_limitation").Inc()
-		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg}
+		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
 	if !apiequality.Semantic.DeepEqual(pod.Spec.Resources, allocatedPod.Spec.Resources) {
 		if resizable, msg, reason := IsInPlacePodLevelResourcesVerticalScalingAllowed(pod); !resizable {
 			// If there is a pending pod-level resources resize but the resize is not allowed, always use the allocated resources.
 			metrics.PodInfeasibleResizes.WithLabelValues(reason).Inc()
-			return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg}
+			return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 		}
 	}
 
 	if disallowed, msg, reason := disallowResizeForMemoryBackedVolumes(pod, allocatedPod, h.containerManager.GetNodeConfig().CgroupVersion); disallowed {
 		logger.V(3).Info(msg, "pod", format.Pod(pod))
 		metrics.PodInfeasibleResizes.WithLabelValues(reason).Inc()
-		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg}
+		return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 	}
 
 	if v1qos.GetPodQOS(pod) == v1.PodQOSGuaranteed {
@@ -92,7 +94,7 @@ func (h *podResizesAdmitHandler) Admit(ctx context.Context, attrs *lifecycle.Pod
 				msg := fmt.Sprintf("Resize is infeasible for Guaranteed Pods when CPU allocation mode is %s", cpuMode)
 				logger.V(3).Info(msg, "pod", format.Pod(pod))
 				metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_cpu_manager_static_policy").Inc()
-				return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg}
+				return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 			}
 		}
 		if !utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingExclusiveMemory) {
@@ -101,7 +103,7 @@ func (h *podResizesAdmitHandler) Admit(ctx context.Context, attrs *lifecycle.Pod
 				msg := fmt.Sprintf("Resize is infeasible for Guaranteed Pods when memory allocation mode is %s", memMode)
 				logger.V(3).Info(msg, "pod", format.Pod(pod))
 				metrics.PodInfeasibleResizes.WithLabelValues("guaranteed_pod_memory_manager_static_policy").Inc()
-				return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg}
+				return lifecycle.PodAdmitResult{Admit: false, Reason: v1.PodReasonInfeasible, Message: msg, RejectionType: lifecycle.RejectionInfeasible}
 			}
 		}
 	}
@@ -175,18 +177,31 @@ func (h *podResizesAdmitHandler) guaranteedPodResourceResizeRequired(pod *v1.Pod
 	return false
 }
 
+// FindVolume returns the volume with the given name from the slice, checking idxHint first for 1:1 common-case alignment.
+func FindVolume(volumes []v1.Volume, name string, idxHint int) *v1.Volume {
+	if len(volumes) > idxHint && volumes[idxHint].Name == name {
+		return &volumes[idxHint]
+	}
+	for i := range volumes {
+		if volumes[i].Name == name {
+			return &volumes[i]
+		}
+	}
+	return nil
+}
+
 // IsMemoryBackedVolumeResizeRequested returns true if any of the pod's memory-backed emptyDir volumes has its size limit changed.
 func IsMemoryBackedVolumeResizeRequested(desiredPod, allocatedPod *v1.Pod) bool {
-	if len(allocatedPod.Spec.Volumes) != len(desiredPod.Spec.Volumes) {
-		// Validation should prevent this from ever happening, but if it does, assume no resize.
-		return false
-	}
-	for i, allocatedVol := range allocatedPod.Spec.Volumes {
-		if !VolHasMemoryBackedEmptyDirSizeLimit(&allocatedVol) {
+	for i, vol := range desiredPod.Spec.Volumes {
+		if !VolHasMemoryBackedEmptyDir(&vol) {
 			continue
 		}
-		desiredVol := desiredPod.Spec.Volumes[i]
-		if !apiequality.Semantic.DeepEqual(allocatedVol.EmptyDir.SizeLimit, desiredVol.EmptyDir.SizeLimit) {
+		allocVol := FindVolume(allocatedPod.Spec.Volumes, vol.Name, i)
+		if allocVol == nil || !VolHasMemoryBackedEmptyDir(allocVol) {
+			continue
+		}
+		hasLimit, hasAllocLimit := VolHasMemoryBackedEmptyDirSizeLimit(&vol), VolHasMemoryBackedEmptyDirSizeLimit(allocVol)
+		if hasLimit != hasAllocLimit || (hasLimit && !vol.EmptyDir.SizeLimit.Equal(*allocVol.EmptyDir.SizeLimit)) {
 			return true
 		}
 	}

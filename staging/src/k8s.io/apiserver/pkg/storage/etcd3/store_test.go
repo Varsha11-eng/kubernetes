@@ -282,6 +282,10 @@ type storeWithPrefixTransformer struct {
 	*store
 }
 
+func (s *storeWithPrefixTransformer) UnderlyingStorage() storage.Interface {
+	return s.store
+}
+
 func (s *storeWithPrefixTransformer) UpdatePrefixTransformer(modifier storagetesting.PrefixTransformerModifier) func() {
 	originalTransformer := s.transformer.(*storagetesting.PrefixTransformer)
 	transformer := *originalTransformer
@@ -347,7 +351,7 @@ func TestOptimisticConcurrency(t *testing.T) {
 
 func TestDeleteOnce(t *testing.T) {
 	ctx, store, _ := testSetup(t)
-	storagetesting.RunTestDeleteOnce(ctx, t, store, store.codec)
+	storagetesting.RunTestDeleteOnce(ctx, t, store, "", store.codec)
 }
 
 func TestUpdateOnce(t *testing.T) {

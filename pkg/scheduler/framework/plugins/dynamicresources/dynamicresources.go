@@ -42,7 +42,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-helpers/nodedeclaredfeatures/features/draoptionalnodeoperations"
-	"k8s.io/component-helpers/resource"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/dynamic-resource-allocation/resourceclaim"
@@ -576,9 +575,6 @@ func (pl *DynamicResources) foreachPodResourceClaim(pod *v1.Pod, cb func(podReso
 // immediate claims bound. UnschedulableAndUnresolvable is returned if
 // the pod cannot be scheduled at the moment on any node.
 func (pl *DynamicResources) PreFilter(ctx context.Context, state fwk.CycleState, pod *v1.Pod, nodes []fwk.NodeInfo) (*fwk.PreFilterResult, *fwk.Status) {
-	if pl.fts.EnableInPlacePodVerticalScalingSchedulerPreemption && resource.IsPodResizeDeferred(pod) {
-		return nil, fwk.NewStatus(fwk.Skip)
-	}
 	logger := klog.FromContext(ctx)
 
 	// If the pod does not reference any claim, we don't need to do
@@ -934,9 +930,6 @@ func getOrCreatePodGroupStateData(cs fwk.CycleState) (*podGroupStateData, error)
 // For claims that are unbound, it checks whether the claim might get allocated
 // for the node.
 func (pl *DynamicResources) Filter(ctx context.Context, cs fwk.CycleState, pod *v1.Pod, nodeInfo fwk.NodeInfo) *fwk.Status {
-	if pl.fts.EnableInPlacePodVerticalScalingSchedulerPreemption && resource.IsPodResizeDeferred(pod) {
-		return nil
-	}
 	state, err := getStateData(cs)
 	if err != nil {
 		return statusError(klog.FromContext(ctx), err)
@@ -1042,8 +1035,15 @@ func (pl *DynamicResources) Filter(ctx context.Context, cs fwk.CycleState, pod *
 		// Pod in Reserve, but before that allocation is recorded in the status
 		// by PreBind.
 		var pendingResult []resourceapi.AllocationResult
+		// numToAllocate is the number of claims needing an allocation.
+		// freshPositions[i] and pendingPositions[i] record where claimsToAllocate[i]
+		// and pendingResult[i] belong in that list of claims, in claim order.
+		numToAllocate := 0
+		var freshPositions, pendingPositions []int
 		extendedResourceClaim := state.claims.extendedResourceClaim()
 		for index, claim := range state.claims.toAllocate() {
+			position := numToAllocate
+			numToAllocate++
 			if claim == extendedResourceClaim && nodeExtendedResourceClaim != nil {
 				claim = nodeExtendedResourceClaim
 			}
@@ -1053,10 +1053,12 @@ func (pl *DynamicResources) Filter(ctx context.Context, cs fwk.CycleState, pod *
 					return statusUnschedulable(logger, fmt.Sprintf("resource claim %s allocation requires DRAOptionalNodeOperations feature on the node", klog.KObj(claim)), "pod", klog.KObj(pod), "node", klog.KObj(node), "resourceclaim", klog.KObj(claim))
 				}
 				pendingResult = append(pendingResult, *pendingAlloc)
+				pendingPositions = append(pendingPositions, position)
 				allocationsMap[claim.UID] = state.informationsForClaim[index].allocation
 				continue
 			}
 			claimsToAllocate = append(claimsToAllocate, claim)
+			freshPositions = append(freshPositions, position)
 		}
 		allocationResult, err := state.allocator.Allocate(allocCtx, node, claimsToAllocate)
 		switch {
@@ -1092,13 +1094,17 @@ func (pl *DynamicResources) Filter(ctx context.Context, cs fwk.CycleState, pod *
 			return statusUnschedulable(logger, "cannot allocate all claims", "pod", klog.KObj(pod), "node", klog.KObj(node), "resourceclaims", klog.KObjSlice(claimsToAllocate))
 		}
 
-		// Reserve uses this information.
-		allocations = append(allocationResult, pendingResult...)
-
-		// allocations contains allocationResult followed by pendingResult.
-		// The first len(claimsToAllocate) elements match claimsToAllocate.
+		// Reserve and Score consume these results by claim position, so they
+		// must be stored in claim order. Grouping fresh and pending results
+		// instead would assign them to the wrong claims when the two kinds
+		// are mixed.
+		allocations = make([]resourceapi.AllocationResult, numToAllocate)
 		for i, claim := range claimsToAllocate {
-			allocationsMap[claim.UID] = &allocations[i]
+			allocations[freshPositions[i]] = allocationResult[i]
+			allocationsMap[claim.UID] = &allocations[freshPositions[i]]
+		}
+		for i, result := range pendingResult {
+			allocations[pendingPositions[i]] = result
 		}
 	}
 
@@ -1149,9 +1155,6 @@ func (pl *DynamicResources) Filter(ctx context.Context, cs fwk.CycleState, pod *
 // suitable node.
 func (pl *DynamicResources) PostFilter(ctx context.Context, cs fwk.CycleState, pod *v1.Pod, _ fwk.NodeToStatusReader) (*fwk.PostFilterResult, *fwk.Status) {
 	logger := klog.FromContext(ctx)
-	if pl.fts.EnableInPlacePodVerticalScalingSchedulerPreemption && resource.IsPodResizeDeferred(pod) {
-		return nil, fwk.NewStatus(fwk.Unschedulable)
-	}
 
 	state, err := getStateData(cs)
 	if err != nil {

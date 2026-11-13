@@ -33,6 +33,7 @@ import (
 	"k8s.io/dynamic-resource-allocation/structured"
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 	schedutil "k8s.io/kubernetes/pkg/scheduler/util"
 )
 
@@ -52,7 +53,6 @@ type DRACaches struct {
 // resourceAllocationScorer contains information to calculate resource allocation score.
 type resourceAllocationScorer struct {
 	Name                                          string
-	enableInPlacePodVerticalScaling               bool
 	enablePodLevelResources                       bool
 	enableDRAExtendedResource                     bool
 	enableInPlacePodLevelResourcesVerticalScaling bool
@@ -188,7 +188,7 @@ func (r *resourceAllocationScorer) calculateNodeAllocatableRequest(
 		}
 		allocatable[i] = nodeAllocatable
 		allocated[i] = nodeAllocated
-		requested[i] = allocated[i] + podRequests[i]
+		requested[i] = framework.SaturatingAdd(allocated[i], podRequests[i])
 	}
 	return requested, allocated, allocatable
 }
@@ -237,7 +237,7 @@ func (r *resourceAllocationScorer) calculateResourceAllocatableRequest(
 func (r *resourceAllocationScorer) calculatePodResourceRequest(pod *v1.Pod, resourceName v1.ResourceName) int64 {
 
 	opts := resourcehelper.PodResourcesOptions{
-		UseStatusResources: r.enableInPlacePodVerticalScaling,
+		UseStatusResources: true,
 		InPlacePodLevelResourcesVerticalScalingEnabled: r.enableInPlacePodLevelResourcesVerticalScaling,
 		// SkipPodLevelResources is set to false when PodLevelResources feature is enabled.
 		SkipPodLevelResources: !r.enablePodLevelResources,
@@ -504,6 +504,7 @@ func (r *resourceAllocationScorer) deviceMatchesClass(ctx context.Context, slice
 	return true, nil
 }
 
+// TODO(#141166): use framework.SaturatingAdd for pod and node placement sums
 func (r *resourceAllocationScorer) scorePlacement(
 	ctx context.Context,
 	podGroupInfo fwk.PodGroupInfo,

@@ -53,6 +53,7 @@ import (
 	"k8s.io/cri-streaming/pkg/streaming/portforward"
 	"k8s.io/cri-streaming/pkg/streaming/remotecommand"
 	"k8s.io/ktesting"
+	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	_ "k8s.io/kubernetes/pkg/apis/core/install"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
@@ -4455,6 +4456,252 @@ func TestConvertToAPIContainerStatusesWithImageVolumeDigest(t *testing.T) {
 	}
 }
 
+func TestConvertToAPIContainerStatusesVolumeMounts(t *testing.T) {
+	tCtx := ktesting.Init(t)
+	rroDisabled := v1.RecursiveReadOnlyDisabled
+
+	volMount1 := v1.VolumeMount{
+		Name:      "vol1",
+		MountPath: "/mnt/vol1",
+	}
+	volMount2 := v1.VolumeMount{
+		Name:      "vol2",
+		MountPath: "/mnt/vol2",
+		ReadOnly:  true,
+	}
+	volMountStatus1 := v1.VolumeMountStatus{
+		Name:      "vol1",
+		MountPath: "/mnt/vol1",
+	}
+	volMountStatus2 := v1.VolumeMountStatus{
+		Name:              "vol2",
+		MountPath:         "/mnt/vol2",
+		ReadOnly:          true,
+		RecursiveReadOnly: &rroDisabled,
+	}
+
+	makePod := func(mounts []v1.VolumeMount) *v1.Pod {
+		return &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-pod", UID: "pod-uid"},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name:         "containerA",
+						Image:        "busybox",
+						VolumeMounts: mounts,
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name                string
+		featureGateDisabled bool
+		pod                 *v1.Pod
+		setActuated         bool
+		actuatedMounts      []v1.VolumeMount
+		currentStatus       *kubecontainer.PodStatus
+		previousStatus      []v1.ContainerStatus
+		expectedMounts      []v1.VolumeMountStatus
+	}{
+		{
+			name:           "waiting container uses spec volumeMounts",
+			pod:            makePod([]v1.VolumeMount{volMount1}),
+			currentStatus:  &kubecontainer.PodStatus{},
+			expectedMounts: []v1.VolumeMountStatus{volMountStatus1},
+		},
+		{
+			name:           "running container without previousStatus uses actuated volumeMounts",
+			pod:            makePod([]v1.VolumeMount{volMount1, volMount2}),
+			setActuated:    true,
+			actuatedMounts: []v1.VolumeMount{volMount1, volMount2},
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c1"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			expectedMounts: []v1.VolumeMountStatus{volMountStatus1, volMountStatus2},
+		},
+		{
+			name:           "running container before restart reports actuated volumeMounts instead of updated spec",
+			pod:            makePod([]v1.VolumeMount{volMount1, volMount2}),
+			setActuated:    true,
+			actuatedMounts: []v1.VolumeMount{volMount1},
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c1"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			previousStatus: []v1.ContainerStatus{
+				{
+					Name:         "containerA",
+					ContainerID:  "test://c1",
+					State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+					VolumeMounts: []v1.VolumeMountStatus{volMountStatus1},
+				},
+			},
+			expectedMounts: []v1.VolumeMountStatus{volMountStatus1},
+		},
+		{
+			name:           "restarted container with added volumeMount updates status from actuated state",
+			pod:            makePod([]v1.VolumeMount{volMount1, volMount2}),
+			setActuated:    true,
+			actuatedMounts: []v1.VolumeMount{volMount1, volMount2},
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c2"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			previousStatus: []v1.ContainerStatus{
+				{
+					Name:         "containerA",
+					ContainerID:  "test://c1",
+					State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+					VolumeMounts: []v1.VolumeMountStatus{volMountStatus1},
+				},
+			},
+			expectedMounts: []v1.VolumeMountStatus{volMountStatus1, volMountStatus2},
+		},
+		{
+			name:           "restarted container with all volumeMounts removed clears old volumeMounts",
+			pod:            makePod(nil),
+			setActuated:    true,
+			actuatedMounts: nil,
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c2"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			previousStatus: []v1.ContainerStatus{
+				{
+					Name:         "containerA",
+					ContainerID:  "test://c1",
+					State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+					VolumeMounts: []v1.VolumeMountStatus{volMountStatus1},
+				},
+			},
+			expectedMounts: nil,
+		},
+		{
+			name: "container without actuated volumeMounts preserves previousStatus volumeMounts for same container ID",
+			pod:  makePod([]v1.VolumeMount{volMount1}),
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c1"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			previousStatus: []v1.ContainerStatus{
+				{
+					Name:         "containerA",
+					ContainerID:  "test://c1",
+					State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+					VolumeMounts: []v1.VolumeMountStatus{volMountStatus1},
+				},
+			},
+			expectedMounts: []v1.VolumeMountStatus{volMountStatus1},
+		},
+		{
+			name:           "container starting with no volumeMounts after waiting with volumeMounts clears waiting volumeMounts",
+			pod:            makePod(nil),
+			setActuated:    true,
+			actuatedMounts: nil,
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c1"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			previousStatus: []v1.ContainerStatus{
+				{
+					Name:         "containerA",
+					ContainerID:  "",
+					State:        v1.ContainerState{Waiting: &v1.ContainerStateWaiting{Reason: PodInitializing}},
+					VolumeMounts: []v1.VolumeMountStatus{volMountStatus1},
+				},
+			},
+			expectedMounts: nil,
+		},
+		{
+			name:                "feature gate disabled preserves previousStatus volumeMounts as immutable",
+			featureGateDisabled: true,
+			pod:                 makePod([]v1.VolumeMount{volMount1, volMount2}),
+			setActuated:         true,
+			actuatedMounts:      []v1.VolumeMount{volMount1, volMount2},
+			currentStatus: &kubecontainer.PodStatus{
+				ContainerStatuses: []*kubecontainer.Status{
+					{
+						ID:    kubecontainer.ContainerID{Type: "test", ID: "c2"},
+						Name:  "containerA",
+						State: kubecontainer.ContainerStateRunning,
+					},
+				},
+			},
+			previousStatus: []v1.ContainerStatus{
+				{
+					Name:         "containerA",
+					ContainerID:  "test://c1",
+					State:        v1.ContainerState{Running: &v1.ContainerStateRunning{}},
+					VolumeMounts: []v1.VolumeMountStatus{volMountStatus1},
+				},
+			},
+			expectedMounts: []v1.VolumeMountStatus{volMountStatus1},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.DynamicNodeLocalEphemeralVolumes, !test.featureGateDisabled)
+			testKubelet := newTestKubelet(t, false /* controllerAttachDetachEnabled */)
+			defer testKubelet.Cleanup()
+			kl := testKubelet.kubelet
+			if test.setActuated {
+				require.NoError(t, kl.actuatedState.SetContainer(tCtx.Logger(), test.pod.UID, podutil.Containers, v1.Container{
+					Name:         "containerA",
+					VolumeMounts: test.actuatedMounts,
+				}))
+			}
+
+			statuses := kl.convertToAPIContainerStatuses(
+				tCtx,
+				test.pod,
+				test.currentStatus,
+				test.previousStatus,
+				test.pod.Spec.Containers,
+				nil,
+				false,
+				false,
+				false,
+			)
+			require.Len(t, statuses, 1)
+			assert.Equal(t, test.expectedMounts, statuses[0].VolumeMounts)
+		})
+	}
+}
+
 func Test_generateAPIPodStatus(t *testing.T) {
 	desiredState := v1.PodSpec{
 		NodeName: "machine",
@@ -6202,7 +6449,6 @@ func Test_generateAPIPodStatusForInPlaceVPAEnabled(t *testing.T) {
 	if goruntime.GOOS != "linux" {
 		t.Skip("InPlacePodVerticalScaling cgroup resource reporting is only supported on Linux")
 	}
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
 	testContainerName := "ctr0"
 	testContainerID := kubecontainer.ContainerID{Type: "test", ID: testContainerName}
 
@@ -7024,7 +7270,6 @@ func TestConvertToAPIContainerStatusesForResources(t *testing.T) {
 	if goruntime.GOOS != "linux" {
 		t.Skip("InPlacePodVerticalScaling cgroup resource reporting is only supported on Linux")
 	}
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
 
 	nowTime := time.Now()
 	testContainerName := "ctr0"
@@ -7560,7 +7805,7 @@ func TestConvertToAPIContainerStatusesForResources(t *testing.T) {
 			} else {
 				tPod.Spec.Containers[0].Resources = tc.Resources
 			}
-			err := kubelet.allocationManager.SetAllocatedResources(logger, tPod)
+			err := kubelet.allocationManager.SetAllocatedPod(logger, tPod)
 			require.NoError(t, err)
 			resources := tc.ActualResources
 			if resources == nil {
@@ -9255,7 +9500,7 @@ func TestMakeEnvironmentVariablesWithFileKeyRef(t *testing.T) {
 		return filePath
 	}
 
-	// Test cases for FileKeyRef
+	// Test cases for FileKeyRef feature gate
 	testCases := []struct {
 		name          string
 		container     *v1.Container
@@ -9715,6 +9960,8 @@ func TestMakeEnvironmentVariablesWithFileKeyRef(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.EnvFiles, true)
+
 			if tc.setupFiles != nil {
 				tc.setupFiles()
 			}
@@ -10175,8 +10422,6 @@ func TestMakeMountsBindMountOptions(t *testing.T) {
 }
 
 func TestGenerateAPIPodStatusResizeConditionsByPodWorkerState(t *testing.T) {
-	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.InPlacePodVerticalScaling, true)
-
 	tests := []struct {
 		name             string
 		podState         PodWorkerState

@@ -60,7 +60,7 @@ kube_master_image="${KUBE_GCE_MASTER_IMAGE:-}"
 if [[ -z "${kube_master_image}" ]]; then
   # remove architecture:X86_64 once we move on from ubuntu jammy as that image family has both X86_64 and ARM images
   # a family may briefly contain more than one non-deprecated image; take the newest (the family head)
-  kube_master_image=$(gcloud compute images list --project="${MASTER_IMAGE_PROJECT}" --no-standard-images --filter="family:${MASTER_IMAGE_FAMILY} architecture:X86_64" --sort-by='~creationTimestamp' --limit=1 --format 'value(name)')
+  kube_master_image=$(gcloud compute images list --project="${MASTER_IMAGE_PROJECT}" --no-standard-images --filter="family:${MASTER_IMAGE_FAMILY} architecture:X86_64 status=(READY)" --sort-by='~creationTimestamp' --limit=1 --format 'value(name)')
 fi
 
 echo "Using image: ${kube_master_image} from project: ${MASTER_IMAGE_PROJECT} as master image" >&2
@@ -81,7 +81,7 @@ function set-linux-node-image() {
   if [[ -z "${kube_node_image}" ]]; then
     # remove architecture:X86_64 once we move on from ubuntu jammy as that image family has both X86_64 and ARM images
     # a family may briefly contain more than one non-deprecated image; take the newest (the family head)
-    kube_node_image=$(gcloud compute images list --project="${NODE_IMAGE_PROJECT}" --no-standard-images --filter="family:${NODE_IMAGE_FAMILY} architecture:X86_64" --sort-by='~creationTimestamp' --limit=1 --format 'value(name)')
+    kube_node_image=$(gcloud compute images list --project="${NODE_IMAGE_PROJECT}" --no-standard-images --filter="family:${NODE_IMAGE_FAMILY} architecture:X86_64 status=(READY)" --sort-by='~creationTimestamp' --limit=1 --format 'value(name)')
   fi
 
   echo "Using image: ${kube_node_image} from project: ${NODE_IMAGE_PROJECT} as node image" >&2
@@ -143,7 +143,8 @@ KUBE_PROMPT_FOR_UPDATE=${KUBE_PROMPT_FOR_UPDATE:-"n"}
 # How long (in seconds) to wait for cluster initialization.
 KUBE_CLUSTER_INITIALIZATION_TIMEOUT=${KUBE_CLUSTER_INITIALIZATION_TIMEOUT:-300}
 # Regions to choose from when neither KUBE_GCE_ZONE nor KUBE_GCE_REGION is set.
-KUBE_GCE_DEFAULT_REGIONS=(us-central1 us-east1 us-east4 europe-west1)
+# Keep to regions near the Prow build cluster: e2e.test talks to the apiserver
+KUBE_GCE_DEFAULT_REGIONS=(us-central1 us-west1 us-west-4 us-east1 us-east4)
 
 function join_csv() {
   local IFS=','; echo "$*";
@@ -960,7 +961,7 @@ function construct-windows-kubeproxy-flags {
   # port usage for services.
   # https://techcommunity.microsoft.com/t5/networking-blog/direct-server-return-dsr-in-a-nutshell/ba-p/693710
   if [[ "${WINDOWS_ENABLE_DSR:-}" == "true" ]]; then
-    flags+=" --feature-gates=WinDSR=true --enable-dsr=true "
+    flags+=" --enable-dsr=true "
   fi
 
   # Configure flags with explicit empty string values. We can't escape

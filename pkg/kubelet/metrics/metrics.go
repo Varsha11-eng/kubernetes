@@ -80,10 +80,13 @@ const (
 	CgroupVersionKey           = "cgroup_version"
 	CRILosingSupportKey        = "cri_losing_support"
 
+	SecurityProfilePullDurationKey = "security_profile_pull_duration_seconds"
+
 	// Metrics keys of remote runtime operations
 	RuntimeOperationsKey         = "runtime_operations_total"
 	RuntimeOperationsDurationKey = "runtime_operations_duration_seconds"
 	RuntimeOperationsErrorsKey   = "runtime_operations_errors_total"
+	CRIListStreamingTotalKey     = "cri_list_streaming_total"
 	// Metrics keys of device plugin operations
 	DevicePluginRegistrationCountKey  = "device_plugin_registration_total"
 	DevicePluginAllocationDurationKey = "device_plugin_alloc_duration_seconds"
@@ -199,6 +202,7 @@ const (
 
 	// Metric keys for in-place pod resize operations.
 	ContainerRequestedResizesKey        = "container_requested_resizes_total"
+	VolumeRequestedResizesKey           = "volume_requested_resizes_total"
 	PodResizeDurationMillisecondsKey    = "pod_resize_duration_milliseconds"
 	PodPendingResizesKey                = "pod_pending_resizes"
 	PodInfeasibleResizesKey             = "pod_infeasible_resizes_total"
@@ -546,6 +550,16 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"operation_type"},
+	)
+	// CRIListStreamingTotal counts streaming attempts, including calls that fall back to unary.
+	CRIListStreamingTotal = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      KubeletSubsystem,
+			Name:           CRIListStreamingTotalKey,
+			Help:           "Cumulative number of CRI list streaming RPC attempts by operation type and result (success, error, fallback).",
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"operation_type", "result"},
 	)
 	// Evictions is a Counter that tracks the cumulative number of pod evictions initiated by the kubelet.
 	// Broken down by eviction signal.
@@ -1170,6 +1184,21 @@ var (
 		[]string{"image_size_in_bytes"},
 	)
 
+	// SecurityProfilePullDuration is a Histogram that tracks the duration (in seconds) of
+	// PullSecurityProfile calls, including the time spent in the waiting queue of the puller.
+	// The cached label is true if the runtime served the profile from its storage, and the
+	// result label is "success" or the reason of the failure.
+	SecurityProfilePullDuration = metrics.NewHistogramVec(
+		&metrics.HistogramOpts{
+			Subsystem:      KubeletSubsystem,
+			Name:           SecurityProfilePullDurationKey,
+			Help:           "Duration in seconds to pull a security profile. The 'cached' label is true if the runtime served the profile from its storage; the 'result' label is 'success' or the failure reason: 'registry_unavailable', 'signature_validation_failed', 'security_profile_invalid', 'unauthenticated' or 'other'.",
+			Buckets:        metrics.ExponentialBuckets(0.001, 4, 10),
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"cached", "result"},
+	)
+
 	LifecycleHandlerSleepTerminated = metrics.NewCounter(
 		&metrics.CounterOpts{
 			Subsystem:      KubeletSubsystem,
@@ -1301,6 +1330,17 @@ var (
 			StabilityLevel: metrics.ALPHA,
 		},
 		[]string{"resource", "requirement", "operation"},
+	)
+
+	// VolumeRequestedResizes tracks the cumulative number of requested resizes at the volume level.
+	VolumeRequestedResizes = metrics.NewCounterVec(
+		&metrics.CounterOpts{
+			Subsystem:      KubeletSubsystem,
+			Name:           VolumeRequestedResizesKey,
+			Help:           "Number of requested resizes, counted at the volume level. The 'medium' label refers to the volume storage medium (e.g. 'memory'); the 'operation' label can be one of 'add', 'remove', 'increase' or 'decrease'.",
+			StabilityLevel: metrics.ALPHA,
+		},
+		[]string{"medium", "operation"},
 	)
 
 	// PodResizeDurationMilliseconds tracks the duration (in milliseconds) it takes to resize a pod.
@@ -1592,20 +1632,26 @@ func Register() {
 
 		legacyregistry.MustRegister(AdmissionRejectionsTotal)
 
+		if utilfeature.DefaultFeatureGate.Enabled(features.SecurityProfileOCI) {
+			legacyregistry.MustRegister(SecurityProfilePullDuration)
+		}
+
 		if utilfeature.DefaultFeatureGate.Enabled(features.ImageVolume) {
 			legacyregistry.MustRegister(ImageVolumeRequestedTotal)
 			legacyregistry.MustRegister(ImageVolumeMountedSucceedTotal)
 			legacyregistry.MustRegister(ImageVolumeMountedErrorsTotal)
 		}
 
-		if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScaling) {
-			legacyregistry.MustRegister(ContainerRequestedResizes)
-			legacyregistry.MustRegister(PodResizeDurationMilliseconds)
-			legacyregistry.MustRegister(PodPendingResizes)
-			legacyregistry.MustRegister(PodInfeasibleResizes)
-			legacyregistry.MustRegister(PodInProgressResizes)
-			legacyregistry.MustRegister(PodDeferredAcceptedResizes)
-			legacyregistry.MustRegister(PodDeferredResizeDurationSeconds)
+		legacyregistry.MustRegister(ContainerRequestedResizes)
+		legacyregistry.MustRegister(PodResizeDurationMilliseconds)
+		legacyregistry.MustRegister(PodPendingResizes)
+		legacyregistry.MustRegister(PodInfeasibleResizes)
+		legacyregistry.MustRegister(PodInProgressResizes)
+		legacyregistry.MustRegister(PodDeferredAcceptedResizes)
+		legacyregistry.MustRegister(PodDeferredResizeDurationSeconds)
+
+		if utilfeature.DefaultFeatureGate.Enabled(features.InPlacePodVerticalScalingMemoryBackedVolumes) {
+			legacyregistry.MustRegister(VolumeRequestedResizes)
 		}
 
 		if utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResourceManagers) {
@@ -1622,6 +1668,8 @@ func Register() {
 		if utilfeature.DefaultFeatureGate.Enabled(features.PodLevelResources) {
 			legacyregistry.MustRegister(PodLevelResourcesAdmissionTotal)
 		}
+
+		RegisterCRIStreamingMetrics()
 	})
 }
 

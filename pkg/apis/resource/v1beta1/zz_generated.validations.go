@@ -161,7 +161,7 @@ func Validate_AllocatedDeviceStatus(
 			}
 			// call field-attached validations
 			earlyReturn := false
-			if e := validate.OptionalSlice(ctx, op, fldPath, obj, oldObj).MarkAlpha().MarkShortCircuit(); len(e) != 0 {
+			if e := validate.OptionalSlice(ctx, op, fldPath, obj, oldObj).MarkBeta().MarkShortCircuit(); len(e) != 0 {
 				earlyReturn = true
 			}
 			if earlyReturn {
@@ -169,7 +169,7 @@ func Validate_AllocatedDeviceStatus(
 			}
 			// lists with map semantics require unique keys
 			if e := validate.ValSliceUnique(ctx, op, fldPath, obj, oldObj,
-				func(a *v1.Condition, b *v1.Condition) bool { return a.Type == b.Type }).MarkAlpha(); len(e) != 0 {
+				func(a *v1.Condition, b *v1.Condition) bool { return a.Type == b.Type }).MarkBeta(); len(e) != 0 {
 				errs = append(errs, e...)
 			}
 			// iterate the list and call the type's validation function
@@ -1099,7 +1099,7 @@ func Validate_DeviceAttribute(
 			if e := validate.EachValSliceVal(ctx, op, fldPath, obj, oldObj, nil, nil,
 				func(ctx context.Context, op operation.Operation, fldPath *field.Path, obj, oldObj *string) field.ErrorList {
 					return validate.MaxBytes(ctx, op, fldPath, obj, oldObj, 64)
-				}).MarkAlpha(); len(e) != 0 {
+				}).MarkBeta(); len(e) != 0 {
 				errs = append(errs, e...)
 			}
 			return
@@ -1536,6 +1536,36 @@ func Validate_DeviceClassSpec(
 				return oldObj.ExtendedResourceName
 			})
 		errs = append(errs, fn(fldPath.Child("extendedResourceName"), obj.ExtendedResourceName, oldVal, oldObj != nil)...)
+	}
+
+	{ // field resourcev1beta1.DeviceClassSpec.ExtendedResourceCapacityRequests
+		fn := func(
+			fldPath *field.Path,
+			obj, oldObj *resourcev1beta1.CapacityRequirements,
+			oldValueCorrelated bool) (errs field.ErrorList) {
+			// don't revalidate unchanged data
+			if oldValueCorrelated && op.Type == operation.Update {
+				if validate.SemanticDeepEqual(obj, oldObj) {
+					return nil
+				}
+			}
+			// call field-attached validations
+			earlyReturn := false
+			if e := validate.OptionalPointer(ctx, op, fldPath, obj, oldObj).MarkShortCircuit(); len(e) != 0 {
+				earlyReturn = true
+			}
+			if earlyReturn {
+				return // do not proceed
+			}
+			// call the type's validation function
+			errs = append(errs, Validate_CapacityRequirements(ctx, op, fldPath, obj, oldObj)...)
+			return
+		}
+		oldVal := safe.Field(oldObj,
+			func(oldObj *resourcev1beta1.DeviceClassSpec) *resourcev1beta1.CapacityRequirements {
+				return oldObj.ExtendedResourceCapacityRequests
+			})
+		errs = append(errs, fn(fldPath.Child("extendedResourceCapacityRequests"), obj.ExtendedResourceCapacityRequests, oldVal, oldObj != nil)...)
 	}
 
 	return errs
@@ -2883,7 +2913,7 @@ func Validate_NodeAllocatableMapping(
 				return false
 			}
 			return obj.CapacityMultiplier != nil
-		}).MarkAlpha(); len(e) != 0 {
+		}).MarkBeta(); len(e) != 0 {
 		errs = append(errs, e...)
 	}
 	if e := validate.Union(ctx, op, fldPath, obj, oldObj, unionMembershipFor_k8s_io_api_resource_v1beta1_NodeAllocatableMapping_,
@@ -2913,7 +2943,7 @@ func Validate_NodeAllocatableMapping(
 				return false
 			}
 			return obj.CapacityKey != nil
-		}).MarkAlpha(); len(e) != 0 {
+		}).MarkBeta(); len(e) != 0 {
 		errs = append(errs, e...)
 	}
 

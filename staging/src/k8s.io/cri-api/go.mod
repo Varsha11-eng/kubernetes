@@ -2,9 +2,9 @@
 
 module k8s.io/cri-api
 
-go 1.27.0
+go 1.26.0
 
-godebug default=go1.27
+godebug default=go1.26
 
 require (
 	google.golang.org/grpc v1.85.0
@@ -12,7 +12,7 @@ require (
 )
 
 require (
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect

@@ -28,7 +28,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"gopkg.in/inf.v0"
 
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -804,7 +803,15 @@ func validateDeviceClassSpec(spec, oldSpec *resource.DeviceClassSpec, fldPath *f
 		allErrs = append(allErrs, field.Invalid(fldPath.Child("extendedResourceName"), *spec.ExtendedResourceName,
 			"must be a valid extended resource name").MarkCoveredByDeclarative().WithOrigin("format=k8s-extended-resource-name"))
 	}
+	allErrs = append(allErrs, validateCapacityRequirements(spec.ExtendedResourceCapacityRequests, oldExtendedResourceCapacityRequests(oldSpec), fldPath.Child("extendedResourceCapacityRequests"))...)
 	return allErrs
+}
+
+func oldExtendedResourceCapacityRequests(oldSpec *resource.DeviceClassSpec) *resource.CapacityRequirements {
+	if oldSpec == nil {
+		return nil
+	}
+	return oldSpec.ExtendedResourceCapacityRequests
 }
 
 func validateDeviceClassConfiguration(config resource.DeviceClassConfiguration, fldPath *field.Path, stored bool) field.ErrorList {
@@ -1670,10 +1677,7 @@ func rangeHasFractional(r resource.CapacityRequestPolicyRange) bool {
 
 // isFractionalQuantity reports whether q has sub-integer precision.
 func isFractionalQuantity(q apiresource.Quantity) bool {
-	dec := q.AsDec()
-	infDec := inf.Dec{}
-	rounded := infDec.Round(dec, 0, inf.RoundDown)
-	return dec.Cmp(rounded) != 0
+	return !q.RoundUp(0)
 }
 
 func validateDeviceCounter(counter resource.Counter, fldPath *field.Path) field.ErrorList {
@@ -1813,10 +1817,12 @@ func stringKey(item string) string {
 	return item
 }
 
-// quantityKeyAsDec uses a scaled inf.Dec of the item as itself
+// quantityKeyAsDec uses the canonical DecimalSI form of the item
 // as a key for validateSet.
 func quantityKeyAsDec(item apiresource.Quantity) string {
-	return item.AsDec().String()
+	item.Format = apiresource.DecimalSI
+	number, suffix := item.CanonicalizeBytes(nil)
+	return string(number) + string(suffix)
 }
 
 // quantityKeyInt uses base-10 integer of the item itself
